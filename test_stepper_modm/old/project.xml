@@ -1,0 +1,25 @@
+<library>
+  <repositories>
+    <!-- <repository><path>../repo.lb</path></repository> -->
+    <repository><path>../ext/modm/repo.lb</path></repository>
+  </repositories>
+  <!-- <extends>vrac:ioboard</extends> -->
+  <extends>modm:vrac_stm32f446ret6</extends>
+  <options>
+    <option name="modm:build:project.name">test_stepper_modm</option>
+  </options>
+  <modules>
+    <module>modm:build:scons</module>
+    <module>modm:debug</module>
+    <module>modm:architecture:clock</module>
+    <module>modm:platform:clock</module>
+    <module>modm:platform:core</module>
+    <module>modm:platform:can:1</module>
+    <module>modm:platform:timer:2</module>
+    <module>modm:platform:gpio</module>
+    <module>modm:processing:timer</module>
+  </modules>
+  <!-- <collectors>
+    <collect name="modm:build:openocd.source">interface/stlink.cfg</collect>
+  </collectors>  -->
+</library>

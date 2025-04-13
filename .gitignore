@@ -1,0 +1,5 @@
+test_controller/motorboard_test_controller/modm/
+test_controller/motorboard_test_controller/build/
+test_controller/motorboard_test_controller/project.xml.log
+test_controller/motorboard_test_controller/SConstruct
+test_controller/motorboard_test_controller/.sconsign.dblite
