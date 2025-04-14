@@ -6,6 +6,8 @@ import threading
 import struct
 import math
 import socket
+import dataclasses
+import collections
 
 CONTROL_LOOP_PERIOD = 1/200
 WHEEL_PERIMETER = 52.42 * math.pi
@@ -13,7 +15,7 @@ WHEEL_SPACING = 258.5
 
 CANID_MOTOR_ALIVE = 0x100
 CANID_MOTOR_SETPOINT = 0x101
-CANID_MOTOR_SETPOINT_RESPONSE = 0x102
+CANID_MOTOR_STATUS = 0x102
 CANID_MOTOR_SETPOINT_ERROR = 0x103
 CANID_MOTOR_RESET_SETPOINT_ERROR = 0x104
 
@@ -46,17 +48,102 @@ def can_alive_thread():
         bus.send(msg)
         time.sleep(1)
 
+@dataclasses.dataclass
+class ControllerUpdate:
+    x: float
+    y: float
+    rx: float
+    ry: float
+    z: float
+    rz: float
+    keys_active: list[int]
+    keys_pressed: list[int]
+    keys_released: list[int]
+
+class Controller:
+    def __init__(self):
+        self.last_keys_active = []
+        self.device = None
+
+    def init(self, device_name: str):
+        devices = [evdev.InputDevice(path) for path in evdev.list_devices()]
+        for device in devices:
+            print(device)
+            if device_name in device.name:
+                print("Found controller:", device)
+                self.device = device
+                return True
+
+        print("No controller found")
+        return False
+    
+    def update(self):
+        keys_active = self.device.active_keys()
+        keys_pressed = []
+        keys_released = []
+        # BTN_A BTN_B BTN_X BTN_Y
+        # BTN_TR BTN_TR
+        # BTN_THUMBL BTN_THUMBR
+        # BTN_SELECT BTN_START
+        # BTN_DPAD_UP BTN_DPAD_DOWN BTN_DPAD_RIGHT BTN_DPAD_LEFT
+
+        # dpad is an axis for some reason, append it to keys_active
+        x = self.device.absinfo(evdev.ecodes.ABS_HAT0X) # dpad 
+        y = self.device.absinfo(evdev.ecodes.ABS_HAT0Y) # dpad
+        if x.value == 1:
+            keys_active.append(evdev.ecodes.BTN_DPAD_RIGHT)
+        elif x.value == -1:
+            keys_active.append(evdev.ecodes.BTN_DPAD_LEFT)
+        if y.value == 1:
+            keys_active.append(evdev.ecodes.BTN_DPAD_DOWN)
+        elif y.value == -1:
+            keys_active.append(evdev.ecodes.BTN_DPAD_UP)
+
+        for k in keys_active:
+            if k not in self.last_keys_active:
+                keys_pressed.append(k)
+        for k in self.last_keys_active:
+            if k not in keys_active:
+                keys_released.append(k)
+
+        x = self.device.absinfo(evdev.ecodes.ABS_X) # joystick gauche horizontal
+        y = self.device.absinfo(evdev.ecodes.ABS_Y) # joystick gauche vertical
+        rx = self.device.absinfo(evdev.ecodes.ABS_RX) # joystick droite horizontal
+        ry = self.device.absinfo(evdev.ecodes.ABS_RY) # joystick droite vertical
+        z = self.device.absinfo(evdev.ecodes.ABS_Z) # gachette gauche
+        rz = self.device.absinfo(evdev.ecodes.ABS_RZ) # gachette droite
+
+        self.last_keys_active = keys_active
+
+        return ControllerUpdate(
+            x = x.value/x.max,
+            y = y.value/y.max,
+            rx = rx.value/rx.max,
+            ry = ry.value/ry.max,
+            z = z.value/z.max,
+            rz = rz.value/rz.max,
+            keys_active = keys_active,
+            keys_pressed = keys_pressed,
+            keys_released = keys_released,
+        )
+
 class PID:
-    def __init__(self, kp, ki, kd):
+    def __init__(self, kp: float, ki: float, kd: float, integrator_max: float = 10000):
         self.kp: float = kp
         self.ki: float = ki
         self.kd: float = kd
+        self.integrator_max: float = integrator_max
 
         self.last_error: float = 0
         self.integrator: float = 0
     
-    def process(self, error: float) -> float:
+    def update(self, error: float) -> float:
         self.integrator += error
+
+        if self.integrator > self.integrator_max:
+                self.integrator = self.integrator_max
+        elif self.integrator < -self.integrator_max:
+            self.integrator = -self.integrator_max
 
         output = self.kp * error
         output += self.ki * self.integrator
@@ -65,6 +152,24 @@ class PID:
         self.last_error = error
 
         return output
+
+class MovingAverageFilter:
+    def __init__(self, window_size: int = 2):
+        self.window_size = window_size
+        self.values = collections.deque()
+        self.values.append(0)
+        self.sum = 0
+    
+    def update(self, value: int):
+        self.values.append(value)
+        self.sum += value
+
+        if len(self.values) > self.window_size:
+            removed = self.values.popleft()
+            self.sum -= removed
+        
+    def get(self) -> float:
+        return self.sum / len(self.values)
 
 class Odometry:
     def __init__(self, control_loop_period: float, wheel_perimeter: float, ticks_per_rev: int, wheel_spacing: float):
@@ -82,24 +187,25 @@ class Odometry:
         self.y_mm = 0.0
         self.theta_rad = 0.0
         self.distance_mm = 0.0
-        self.vel_distance_mm = 0.0
-        self.vel_theta_rad = 0.0
+
+        self.vel_dist_filter = MovingAverageFilter(5)
+        self.vel_theta_filter = MovingAverageFilter(5)
 
         self.last_ticks_left = 0
         self.last_ticks_right = 0
     
     def update(self, ticks_left: int, ticks_right: int):
-        delta_left: float = (ticks_left - self.last_ticks_left) * self.k_wheel
-        delta_right: float = (ticks_right - self.last_ticks_right) * self.k_wheel
+        delta_left = (ticks_left - self.last_ticks_left) * self.k_wheel
+        delta_right = (ticks_right - self.last_ticks_right) * self.k_wheel
 
-        delta_distance: float = (delta_right + delta_left) / 2.0
-        delta_theta: float = (delta_right - delta_left) / self.wheel_spacing
+        delta_distance = (delta_right + delta_left) / 2.0
+        delta_theta = (delta_right - delta_left) / self.wheel_spacing
 
         self.distance_mm += delta_distance
         self.theta_rad += delta_theta
 
-        self.vel_distance_mm = delta_distance / self.control_loop_period
-        self.vel_theta_rad = delta_theta / self.control_loop_period
+        self.vel_dist_filter.update(delta_distance / self.control_loop_period)
+        self.vel_theta_filter.update(delta_theta / self.control_loop_period)
 
         self.x_mm += delta_distance * math.cos(self.theta_rad)
         self.y_mm += delta_distance * math.sin(self.theta_rad)
@@ -107,29 +213,35 @@ class Odometry:
         self.last_ticks_left = ticks_left
         self.last_ticks_right = ticks_right
 
-    def get_x(self):
+    def get_x(self) -> float:
         return self.x_mm
 
-    def get_y(self):
+    def get_y(self) -> float:
         return self.y_mm
-    
-    def get_theta_rad(self):
-        return self.theta_rad
 
-    def get_theta_deg(self):
+    def get_theta(self) -> float:
         return self.theta_rad * 180.0 / math.pi
     
-    def get_velocity_theta(self):
-        """
-        :returns: theta velocity in deg/s
-        """
-        return self.vel_theta_rad * 180.0 / math.pi
+    def get_velocity_theta(self) -> float:
+        return self.vel_theta_filter.get() * 180.0 / math.pi
 
-    def get_distance(self):
+    def get_distance(self) -> float:
         return self.distance_mm
 
-    def get_velocity_distance(self):
-        return self.vel_distance_mm
+    def get_velocity_distance(self) -> float:
+        return self.vel_dist_filter.get()
+
+class ThresholdFilter:
+    def __init__(self, threshold: int):
+        self.threshold = threshold
+        self.filtered_value: int = 0
+
+    def update(self, value: int):
+        if abs(value - self.filtered_value) > self.threshold:
+            self.filtered_value = value
+    
+    def get(self):
+        return self.filtered_value
 
 class HallEncoder:
     TICKS_PER_REVOLUTION = 16384
@@ -141,6 +253,7 @@ class HallEncoder:
         self.total_ticks: int = 0
         self.lock = threading.Lock()
         self.first_measure = True
+        self.filter = ThresholdFilter(3)
     
     def update(self, current_reading_ticks: int):
         delta = current_reading_ticks - self.last_reading_ticks
@@ -159,12 +272,12 @@ class HallEncoder:
 
         with self.lock:
             self.total_ticks += delta
+            self.filter.update(self.total_ticks)
 
         return delta
 
     def get(self):
-        with self.lock:
-            return self.total_ticks
+        return self.filter.get()
 
 class RampFilter:
     def __init__(self, control_loop_period: float, accel_rate: float, decel_rate: float):
@@ -198,26 +311,44 @@ class RampFilter:
 
         return self.current_value
 
-encoder1 = HallEncoder()
-encoder2 = HallEncoder()
+encoder_left = HallEncoder()
+encoder_right = HallEncoder()
 odometry = Odometry(CONTROL_LOOP_PERIOD, WHEEL_PERIMETER, HallEncoder.TICKS_PER_REVOLUTION, WHEEL_SPACING)
-pid_dist = PID(0.45, 0.01, 0)
-pid_theta = PID(1.5, 0.0, 0)
+# pid_dist = 30, 1.7, 0
+pid_dist = PID(30, 1.7, 0, integrator_max=8000)
+# pid_theta = 60, 4.0, 0
+pid_theta = PID(60, 4.0, 0, integrator_max=3000)
 limit_ramp_theta = RampFilter(CONTROL_LOOP_PERIOD, 1080, 1080)
-limit_ramp_dist = RampFilter(CONTROL_LOOP_PERIOD, 1000, 2500)
+limit_ramp_dist = RampFilter(CONTROL_LOOP_PERIOD, 1000, 2100)
+
+con = Controller()
+if not con.init("8BitDo"):
+    quit()
 
 def can_read_thread():
     while True:
         for msg in bus:
             if msg.arbitration_id == CANID_MOTOR_ALIVE:
-                print("[CAN] MotorBoard IsAlive ", msg.data[0])
-            elif msg.arbitration_id == CANID_MOTOR_SETPOINT_RESPONSE:
-                enc1, enc2, timeout_remaining = struct.unpack(">HHb", msg.data)
-                encoder1.update(enc1) #left
-                encoder2.update(enc2) #right
-                odometry.update(encoder1.get(), -encoder2.get())
-                # print("[CAN] MotorBoard SetpointRes dist:{:.2f} theta:{:.2f} x:{:.2f} y:{:.2f}".format(odometry.get_distance(), odometry.get_theta_deg(), odometry.get_x(), odometry.get_y()))
-                # print("[CAN] ", enc1, enc2)
+                error = struct.unpack(">?", msg.data)
+                print("[CAN] MotorBoard IsAlive error:", error)
+            
+            elif msg.arbitration_id == CANID_MOTOR_STATUS:
+                enc_left, enc_right, timeout_remaining = struct.unpack(">HHh", msg.data)
+
+                encoder_left.update(enc_left)
+                encoder_right.update(enc_right)
+                odometry.update(encoder_left.get(), -encoder_right.get())
+
+                send_telemetry("vel_theta", odometry.get_velocity_theta())
+                send_telemetry("vel_dist", odometry.get_velocity_distance())
+                send_telemetry("timeout_remaining", timeout_remaining)
+                # send_telemetry("dist_integrator", pid_dist.integrator)
+                # send_telemetry("theta_integrator", pid_theta.integrator)
+            
+            elif msg.arbitration_id == CANID_MOTOR_SETPOINT_ERROR:
+                timeout_remaining = struct.unpack(">i", msg.data)
+
+                print("SETPOINT ERROR! timeout_remaining:", timeout_remaining)
 
 def main():
     dev = get_controller_device()
@@ -228,82 +359,56 @@ def main():
     t_can_read = threading.Thread(target=can_read_thread)
     t_can_read.start()
 
-    # for event in dev.read_loop():
-    #     print(evdev.categorize(event))
-
-    msg = can.Message(arbitration_id=CANID_MOTOR_RESET_SETPOINT_ERROR)
-    bus.send(msg)
-
-    # joytheta_integration = 0.0
-    # last_state_y = False
-    # last_state_x = False
-
     while True:
-        keys = dev.active_keys()
-        # LB = BTN_TR
-        # RB = BTN_TR
-        # A = BTN_A
-        # B = BTN_B
-        # X = BTN_X
-        # Y = BTN_Y
-        # print(keys)
-    
-        # is_btn_y_pressed = evdev.ecodes.BTN_Y in keys
-        # if is_btn_y_pressed and not last_state_y:
-        #     joytheta_integration += 45
+        joy = con.update()
 
-        # is_btn_x_pressed = evdev.ecodes.BTN_X in keys
-        # if is_btn_x_pressed and not last_state_x:
-        #     joytheta_integration -= 45
+        if evdev.ecodes.BTN_SELECT in joy.keys_pressed:
+            print("sleeping a bit to trigger motorboard error")
+            time.sleep(0.005)
+        if evdev.ecodes.BTN_START in joy.keys_pressed:
+            msg = can.Message(arbitration_id=CANID_MOTOR_RESET_SETPOINT_ERROR)
+            bus.send(msg)
+            print("sent error reset")
         
-        # last_state_y = is_btn_y_pressed
-        # last_state_x = is_btn_x_pressed
+        joy_theta = -joy.x * 90
+        joy_speed = (joy.rz - joy.z) * 200
 
-        x = dev.absinfo(evdev.ecodes.ABS_X) # joystick gauche horizontal
-        y = dev.absinfo(evdev.ecodes.ABS_Y) # joystick gauche vertical
-        rx = dev.absinfo(evdev.ecodes.ABS_RX) # joystick droite horizontal
-        ry = dev.absinfo(evdev.ecodes.ABS_RY) # joystick droite vertical
-        z = dev.absinfo(evdev.ecodes.ABS_Z) # gachette gauche
-        rz = dev.absinfo(evdev.ecodes.ABS_RZ) # gachette droite
+        # boost mode
+        if evdev.ecodes.BTN_Y in joy.keys_active:
+            joy_theta = -joy.x * 90
+            joy_speed = (joy.rz - joy.z) * 600
 
-        joytheta = (-x.value/x.max) * 180
-        # joytheta = (-x.value/x.max) / 2.0
-        # joytheta_integration += joytheta
-        joyspeed = (rz.value/rz.max - z.value/z.max) * 800
+        # joy_theta = limit_ramp_theta.update(joytheta)
+        # joy_speed = limit_ramp_dist.update(joy_speed)
 
-        joyspeed_ramped = limit_ramp_dist.update(joyspeed)
-        # joytheta_ramped = limit_ramp_theta.update(joytheta_integration)
-        joytheta_ramped = limit_ramp_theta.update(joytheta)
+        err_theta = joy_theta - odometry.get_velocity_theta()
+        err_speed = joy_speed - odometry.get_velocity_distance()
 
-        err_theta = joytheta_ramped - odometry.get_velocity_theta()
-        # err_theta = joytheta_ramped - odometry.get_theta_deg()
-        err_speed = joyspeed_ramped - odometry.get_velocity_distance()
+        pidtheta = pid_theta.update(err_theta)
+        pidspeed = pid_dist.update(err_speed)
 
-        pidtheta = pid_theta.process(err_theta)
-        pidspeed = pid_dist.process(err_speed)
+        pwm_right = pidspeed + pidtheta
+        pwm_left = -pidspeed + pidtheta
 
-        cmdtheta = int(pidtheta)
-        cmdspeed = int(pidspeed)
+        pwm_right = int(pwm_right)
+        pwm_left = int(pwm_left)
 
-        send_telemetry("vel_theta", odometry.get_velocity_theta())
-        send_telemetry("vel_dist", odometry.get_velocity_distance())
-
-        if cmdtheta > 255:
-            cmdtheta = 255;
-        elif cmdtheta < -255:
-            cmdtheta = -255;
+        # clamp values to signed 16 bit integer
+        if pwm_right > 32767:
+            pwm_right = 32767;
+        elif pwm_right < -32768:
+            pwm_right = -32768;
         
-        if cmdspeed > 255:
-            cmdspeed = 255;
-        elif cmdspeed < -255:
-            cmdspeed = -255;
+        if pwm_left > 32767:
+            pwm_left = 32767;
+        elif pwm_left < -32768:
+            pwm_left = -32768;
 
-        print("{:.2f} {:.2f} {} {}".format(joytheta, joyspeed, cmdtheta, cmdspeed))
-
-        data = bytearray(struct.pack(">hh", cmdtheta, cmdspeed))
+        data = bytearray(struct.pack(">hh", pwm_right, pwm_left))
         msg = can.Message(arbitration_id=CANID_MOTOR_SETPOINT, data=data)
         bus.send(msg)
 
+        # TODO: this code should be execute each 5ms, not 5ms sleep between each execution
         time.sleep(CONTROL_LOOP_PERIOD)
 
 if __name__ == "__main__":
