@@ -4,6 +4,7 @@
 #include <modm/architecture/interface/clock.hpp>
 #include <modm/debug/logger.hpp>
 #include <modm/driver/encoder/as5047.hpp>
+#include <limits>
 
 using namespace modm::literals;
 
@@ -13,10 +14,9 @@ using namespace modm::literals;
 
 #define CANID_MOTOR_ALIVE 0x100 //sent periodically by motorboard
 #define CANID_MOTOR_SETPOINT 0x101
-#define CANID_MOTOR_SETPOINT_RESPONSE 0x102 //sent by motorboard in response to setpoint
+#define CANID_MOTOR_STATUS 0x102 //sent by motorboard in response to setpoint
 #define CANID_MOTOR_SETPOINT_ERROR 0x103 //sent by motorboard if no setpoint in the last x ms and was not in error
 #define CANID_MOTOR_RESET_SETPOINT_ERROR 0x104
-
 
 #define CANID_RASPI_ALIVE 0x200 //sent periodically by raspiboard
 
@@ -93,7 +93,6 @@ struct SystemClock
 			.pllP = 2,
 		};
 		Rcc::enablePll(Rcc::PllSource::Hse, pllFactors);
-		// Rcc::enableOverdriveMode();
 		Rcc::setFlashLatency<Frequency>();
 		Rcc::enableSystemClock(Rcc::SystemClockSource::Pll);
 		Rcc::setAhbPrescaler(Rcc::AhbPrescaler::Div1);
@@ -104,34 +103,6 @@ struct SystemClock
 		return true;
 	}
 };
-
-int32_t map(int32_t x, int32_t in_min, int32_t in_max, int32_t out_min, int32_t out_max) {
-	return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
-  }
-
-void test_timer_sweep() {
-	uint16_t timer_overflow = Timer1::getOverflow();
-
-	while (true) {
-		for (int32_t i = -255 ; i < 255 ; ++i) {
-			uint16_t timer1_ch1_cmp = map(i, -255, 255, 0, timer_overflow);
-			Timer1::setCompareValue<M1_pwm::Ch1>(timer1_ch1_cmp);
-			modm::delay_ms(3);
-		}
-		Timer1::setCompareValue<M1_pwm::Ch1>(0);
-
-		modm::delay(1s);
-
-		for (int32_t i = -32767 ; i < 32767 ; ++i) {
-			uint16_t timer1_ch2_cmp = map(i, -32767, 32767, 0, timer_overflow);
-			Timer1::setCompareValue<M2_pwm::Ch2>(timer1_ch2_cmp);
-			modm::delay_us(23);
-		}
-		Timer1::setCompareValue<M2_pwm::Ch2>(0);
-
-		modm::delay(1s);
-	}
-}
 
 int main()
 {
@@ -175,25 +146,19 @@ int main()
 	enc_SPI::connect<enc_miso::Miso, enc_mosi::Mosi, enc_sck::Sck>();
 	enc_SPI::initialize<SystemClock, 1.125_MHz>();
 
-	modm::PeriodicTimer blinker{50ms};
-	modm::PeriodicTimer can_alive_timer{1s};
-
-	MODM_LOG_INFO << "Initializing Can..." << modm::endl;
 	Can1::connect<GpioInputB8::Rx, GpioOutputB9::Tx>(Gpio::InputType::PullUp);
 	Can1::initialize<SystemClock, 500_kbps>(9);
 
-	MODM_LOG_INFO << "Setting up Filter for Can..." << modm::endl;
-	// Receive every message
-	CanFilter::setFilter(0, CanFilter::FIFO0, CanFilter::ExtendedIdentifier(0),
-						 CanFilter::ExtendedFilterMask(0));
-
-	CanFilter::setFilter(1, CanFilter::FIFO0, CanFilter::StandardIdentifier(0),
-						 CanFilter::StandardFilterMask(0));
+	CanFilter::setFilter(0, CanFilter::FIFO0, CanFilter::ExtendedIdentifier(0), CanFilter::ExtendedFilterMask(0));
+	CanFilter::setFilter(1, CanFilter::FIFO0, CanFilter::ExtendedIdentifier(0), CanFilter::ExtendedFilterMask(0));
 
 	uint16_t timer_overflow = Timer1::getOverflow();
-
 	bool setpoint_error = true;
-	modm::Timeout setpoint_timeout{10ms};
+	modm::PreciseTimeout setpoint_error_timeout{10ms};
+	setpoint_error_timeout.stop();
+
+	modm::PeriodicTimer blinker{50ms};
+	modm::PeriodicTimer can_alive_timer{1s};
 
 	while (true)
 	{
@@ -202,20 +167,25 @@ int main()
 			Board::LedD13::toggle();
 		}
 		
-		if (setpoint_timeout.execute()) {
-			MODM_LOG_INFO << "SERPOINT ERROR" << modm::endl;
+		if (setpoint_error_timeout.execute()) {
 			setpoint_error = true;
+			M1_en::reset();
+			M2_en::reset();
 			M1_in1::reset();
 			M1_in2::reset();
 			M2_in1::reset();
 			M2_in2::reset();
 			Timer1::setCompareValue<M1_pwm::Ch1>(0);
 			Timer1::setCompareValue<M2_pwm::Ch2>(0);
-			M1_en::reset();
-			M2_en::reset();
+
 			blinker.restart(50ms);
 
-			modm::can::Message msg(CANID_MOTOR_RESET_SETPOINT_ERROR);
+			modm::can::Message msg(CANID_MOTOR_SETPOINT_ERROR, 4);
+			int32_t dur = setpoint_error_timeout.remaining().count();
+			msg.data[0] = dur >> 24 & 0xFF;
+			msg.data[1] = dur >> 16 & 0xFF;
+			msg.data[2] = dur >> 8 & 0xFF;
+			msg.data[3] = dur & 0xFF;
 			Can1::sendMessage(msg);
 		}
 
@@ -235,42 +205,16 @@ int main()
 		uint8_t filter_id;
 		Can1::getMessage(message, &filter_id);
 
-		if (message.identifier == CANID_RASPI_ALIVE) {
-			MODM_LOG_INFO << "[CAN] raspi alive" << modm::endl;
-		}
-
-		else if (message.identifier == CANID_MOTOR_RESET_SETPOINT_ERROR && message.length == 0)
-		{
-			MODM_LOG_INFO << "SERPOINT ERROR RESET" << modm::endl;
-			setpoint_error = false;
-			M1_en::set();
-			M2_en::set();
-			setpoint_timeout.restart();
-			blinker.restart(1s);
-		}
-
-		else if (message.identifier == CANID_MOTOR_SETPOINT && message.length == 4)
+		if (message.identifier == CANID_MOTOR_SETPOINT && message.length == 4)
 		{
 			if (setpoint_error)
 				continue;
 
-			int16_t cmdtheta = (message.data[0] << 8) | message.data[1];
-			int16_t cmdspeed = (message.data[2] << 8) | message.data[3];
+			int16_t pwm_right = (message.data[0] << 8) | message.data[1];
+			int16_t pwm_left = (message.data[2] << 8) | message.data[3];
 
-			// cmdtheta = cmdtheta/4;
-	
-			int16_t pwm_right = cmdspeed + cmdtheta;
-			int16_t pwm_left = -cmdspeed + cmdtheta;
-
-			if (pwm_right > 255)
-				pwm_right = 255;
-			else if (pwm_right < -255)
-				pwm_right = -255;
-
-			if (pwm_left > 255)
-				pwm_left = 255;
-			else if (pwm_left < -255)
-				pwm_left = -255;
+			uint16_t right_timer_cmp = 0;
+			uint16_t left_timer_cmp = 0;
 			
 			if (pwm_right == 0) {
 				M1_in1::reset();
@@ -278,9 +222,11 @@ int main()
 			} else if (pwm_right > 0) {
 				M1_in1::set();
 				M1_in2::reset();
+				right_timer_cmp = pwm_right * timer_overflow / SHRT_MAX;
 			} else {
 				M1_in1::reset();
 				M1_in2::set();
+				right_timer_cmp = -pwm_right * timer_overflow / -SHRT_MIN;
 			}
 
 			if (pwm_left == 0) {
@@ -289,33 +235,41 @@ int main()
 			} else if (pwm_left > 0) {
 				M2_in1::set();
 				M2_in2::reset();
+				left_timer_cmp = pwm_left * timer_overflow / SHRT_MAX;
 			} else {
 				M2_in1::reset();
 				M2_in2::set();
+				left_timer_cmp = -pwm_left * timer_overflow / -SHRT_MIN;
 			}
-
-			uint16_t right_timer_cmp = map(abs(pwm_right), 0, 255, 0, timer_overflow);
-			uint16_t left_timer_cmp = map(abs(pwm_left), 0, 255, 0, timer_overflow);
 			
 			Timer1::setCompareValue<M1_pwm::Ch1>(right_timer_cmp);
 			Timer1::setCompareValue<M2_pwm::Ch2>(left_timer_cmp);
 			
-			// MODM_LOG_INFO << "[CAN] SETPOINT cmdtheta:" << cmdtheta << " cmdspeed:" << cmdspeed << modm::endl;
-
 			enc1.read();
 			enc2.read();
 			uint16_t enc1_data_raw = enc1_data.data & 0x3FFF;
 			uint16_t enc2_data_raw = enc2_data.data & 0x3FFF;
 
-			modm::can::Message response(CANID_MOTOR_SETPOINT_RESPONSE, 5);
+			modm::can::Message response(CANID_MOTOR_STATUS, 6);
+			int32_t dur = setpoint_error_timeout.remaining().count();
 			response.data[0] = enc1_data_raw >> 8;
 			response.data[1] = enc1_data_raw & 0xFF;
 			response.data[2] = enc2_data_raw >> 8;
 			response.data[3] = enc2_data_raw & 0xFF;
-			response.data[4] = setpoint_timeout.remaining().count();
+			response.data[4] = dur >> 8 & 0xFF;
+			response.data[5] = dur & 0xFF;
 			Can1::sendMessage(response);
 
-			setpoint_timeout.restart();
+			setpoint_error_timeout.restart(10ms);
+		}
+
+		else if (message.identifier == CANID_MOTOR_RESET_SETPOINT_ERROR && message.length == 0)
+		{
+			setpoint_error = false;
+			blinker.restart(1s);
+			M1_en::set();
+			M2_en::set();
+			setpoint_error_timeout.restart(10ms);
 		}
 	}
 
