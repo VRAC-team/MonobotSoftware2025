@@ -12,13 +12,14 @@ using namespace modm::literals;
 #undef	MODM_LOG_LEVEL
 #define	MODM_LOG_LEVEL modm::log::DISABLED
 
-#define CANID_MOTOR_ALIVE 0x100 //sent periodically by motorboard
-#define CANID_MOTOR_SETPOINT 0x101
-#define CANID_MOTOR_STATUS 0x102 //sent by motorboard in response to setpoint
-#define CANID_MOTOR_SETPOINT_ERROR 0x103 //sent by motorboard if no setpoint in the last x ms and was not in error
-#define CANID_MOTOR_RESET_SETPOINT_ERROR 0x104
+#define CANID_MOTOR_SETPOINT 0x0
+#define CANID_MOTOR_STATUS 0x1 //sent by motorboard in response to setpoint
 
-#define CANID_RASPI_ALIVE 0x200 //sent periodically by raspiboard
+#define CANID_MOTOR_SETPOINT_ERROR 0x100 //sent by motorboard if no setpoint in the last x ms and was not in error
+#define CANID_MOTOR_RESET_SETPOINT_ERROR 0x101
+#define CANID_MOTOR_ALIVE 0x1FF //sent periodically by motorboard
+
+#define CANID_RASPI_ALIVE 0x2FF //sent periodically by raspiboard
 
 using M1_pwm = GpioA8; //timer1 chan1
 using M2_pwm = GpioA9; //timer1 chan2
@@ -144,13 +145,14 @@ int main()
 	// test_timer_sweep();
 
 	enc_SPI::connect<enc_miso::Miso, enc_mosi::Mosi, enc_sck::Sck>();
-	enc_SPI::initialize<SystemClock, 1.125_MHz>();
+	enc_SPI::initialize<SystemClock, 2.25_MHz>();
 
 	Can1::connect<GpioInputB8::Rx, GpioOutputB9::Tx>(Gpio::InputType::PullUp);
-	Can1::initialize<SystemClock, 500_kbps>(9);
+	Can1::initialize<SystemClock, 1_Mbps>(9);
 
-	CanFilter::setFilter(0, CanFilter::FIFO0, CanFilter::ExtendedIdentifier(0), CanFilter::ExtendedFilterMask(0));
-	CanFilter::setFilter(1, CanFilter::FIFO0, CanFilter::ExtendedIdentifier(0), CanFilter::ExtendedFilterMask(0));
+	// only accept message in the range: 0x100 – 0x1FF
+	CanFilter::setFilter(0, CanFilter::FIFO0, CanFilter::ExtendedIdentifier(0), CanFilter::ExtendedFilterMask(0x400));
+	// CanFilter::setFilter(1, CanFilter::FIFO0, CanFilter::ExtendedIdentifier(0), CanFilter::ExtendedFilterMask(0));
 
 	uint16_t timer_overflow = Timer1::getOverflow();
 	bool setpoint_error = true;
@@ -250,6 +252,8 @@ int main()
 			uint16_t enc1_data_raw = enc1_data.data & 0x3FFF;
 			uint16_t enc2_data_raw = enc2_data.data & 0x3FFF;
 
+			setpoint_error_timeout.restart(10ms);
+
 			modm::can::Message response(CANID_MOTOR_STATUS, 6);
 			int32_t dur = setpoint_error_timeout.remaining().count();
 			response.data[0] = enc1_data_raw >> 8;
@@ -259,8 +263,6 @@ int main()
 			response.data[4] = dur >> 8 & 0xFF;
 			response.data[5] = dur & 0xFF;
 			Can1::sendMessage(response);
-
-			setpoint_error_timeout.restart(10ms);
 		}
 
 		else if (message.identifier == CANID_MOTOR_RESET_SETPOINT_ERROR && message.length == 0)

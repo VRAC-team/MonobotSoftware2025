@@ -1,0 +1,17 @@
+<library>
+  <extends>modm:nucleo-l432kc</extends>
+  <repositories>
+    <repository><path>../ext/modm/repo.lb</path></repository>
+  </repositories>
+  <options>
+    <option name="modm:build:project.name">servoboard_nucleo</option>
+  </options>
+  <modules>
+    <module>modm:build:scons</module>
+    <module>modm:debug</module>
+    <module>modm:platform:can:1</module>
+    <module>modm:platform:timer:1</module>
+    <module>modm:platform:gpio</module>
+    <module>modm:processing:timer</module>
+  </modules>
+</library>

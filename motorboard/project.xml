@@ -1,10 +1,10 @@
 <library>
   <extends>modm:nucleo-f446re</extends>
   <repositories>
-    <repository><path>../../ext/modm/repo.lb</path></repository>
+    <repository><path>../ext/modm/repo.lb</path></repository>
   </repositories>
   <options>
-    <option name="modm:build:project.name">motorboard_test_controller</option>
+    <option name="modm:build:project.name">motorboard</option>
     <option name="modm:platform:cortex-m:main_stack_size">8Ki</option>
     <option name="modm:platform:can:1:buffer.rx">64</option>
   </options>
