@@ -142,19 +142,19 @@ void end_match() {
   digitalWrite(GPIO_NEN, HIGH);
 
   digitalWrite(GPIO_LED_DANCE, HIGH);
-  // servo1.write(180); //sorti
-  // servo2.write(0); //sorti
+  servo1.write(180); //sorti
+  servo2.write(0); //sorti
   delay(400);
 
   while (true) {
     digitalWrite(GPIO_LED_DANCE, HIGH);
-    // servo1.write(0+45);
-    // servo2.write(180-45);
+    servo1.write(0+45);
+    servo2.write(180-45);
     delay(1000);
 
     digitalWrite(GPIO_LED_DANCE, LOW);
-    // servo1.write(180-45);
-    // servo2.write(0+45);
+    servo1.write(180-45);
+    servo2.write(0+45);
     delay(1000);
   }
 }
@@ -279,14 +279,16 @@ void setup()
 
   g_start_time = millis();
 
-  //wait_last_fifteen_seconds();
+  wait_last_fifteen_seconds();
 
   digitalWrite(GPIO_NEN, LOW);
 
   do_line(1250);
-  do_rotate(90);
-  do_line(-70);
-  do_line(350);
+  do_rotate(-90);
+  do_line(-130); // homing vers la zone de calcul
+  do_line(100);
+  do_rotate(180);
+  do_line(-250);
   
   end_match();
 }
