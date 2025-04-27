@@ -34,8 +34,6 @@ modm::As5047<enc_SPI, enc1_cs> enc1{enc1_data};
 modm::as5047::Data enc2_data{0};
 modm::As5047<enc_SPI, enc2_cs> enc2{enc2_data};
 
-bool g_first_can_alive = true;
-
 struct SystemClock
 {
 	static constexpr uint32_t Frequency = 72_MHz;
@@ -149,6 +147,8 @@ int main()
 	setpoint_error_timeout.stop();
 
 	modm::PeriodicTimer blinker{50ms};
+
+	bool first_can_alive = true;
 	modm::PeriodicTimer can_alive_timer{1s};
 
 	while (true)
@@ -177,11 +177,11 @@ int main()
 		if (can_alive_timer.execute()) {
 
 			modm::can::Message alive(CANID_MOTOR_ALIVE, 2);
-			alive.data[0] = g_first_can_alive;
+			alive.data[0] = first_can_alive;
 			alive.data[1] = setpoint_error;
 			Can1::sendMessage(alive);
 
-			g_first_can_alive = false;
+			first_can_alive = false;
 		}
 		
 		if (!Can1::isMessageAvailable()) {

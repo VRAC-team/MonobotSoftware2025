@@ -35,8 +35,6 @@ using hc165_clk = GpioOutputC11;
 using hc165_data = GpioOutputC10;
 using hc165_latch = GpioOutputC12;
 
-bool g_first_can_alive = true;
-
 struct SystemClock
 {
 	static constexpr uint32_t Frequency = 72_MHz;
@@ -180,6 +178,8 @@ int main()
 	}
 
 	modm::PeriodicTimer blinker{50ms};
+
+	bool first_can_alive = true;
 	modm::PeriodicTimer can_alive_timer{1s};
 
 	while (true)
@@ -191,10 +191,10 @@ int main()
 		if (can_alive_timer.execute()) {
 
 			modm::can::Message alive(CANID_IO_ALIVE, 1);
-			alive.data[0] = g_first_can_alive;
+			alive.data[0] = first_can_alive;
 			Can1::sendMessage(alive);
 
-			g_first_can_alive = false;
+			first_can_alive = false;
 		}
 		
 		if (!Can1::isMessageAvailable()) {

@@ -20,8 +20,6 @@ using power3_adc_chan = GpioA6::In11;
 
 using pca_oe = GpioInverted<GpioA1>;
 
-bool g_first_can_alive = true;
-
 struct SystemClock
 {
 	static constexpr uint32_t Frequency = 80_MHz;
@@ -142,10 +140,13 @@ int main()
 	Can1::initialize<SystemClock, 1_Mbps>(9);
     CanFilter::setFilter(0, CanFilter::FIFO0, CanFilter::ExtendedIdentifier(0x100), CanFilter::ExtendedFilterMask(0x700)); // filter 0x100 to 0x1FF
 
-	MODM_LOG_INFO << "starting servoboard_nucleo date:" << __DATE__ << " time:" __TIME__ << modm::endl;
+	MODM_LOG_INFO << "starting servoboard date:" << __DATE__ << " time:" __TIME__ << modm::endl;
 
     modm::PeriodicTimer blinker{50ms};
+
+	bool first_can_alive = true;
 	modm::PeriodicTimer can_alive_timer{1s};
+
 	modm::PeriodicTimer power_current_measuer_timer{50ms};
 
     while (true) {
@@ -156,10 +157,10 @@ int main()
 		if (can_alive_timer.execute()) {
 
 			modm::can::Message alive(CANID_SERVO_ALIVE, 1);
-            alive.data[0] = g_first_can_alive;
+            alive.data[0] = first_can_alive;
 			Can1::sendMessage(alive);
 
-            g_first_can_alive = false;
+            first_can_alive = false;
 		}
 
 		if (power_current_measuer_timer.execute()) {
