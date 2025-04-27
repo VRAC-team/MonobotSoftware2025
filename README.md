@@ -29,21 +29,15 @@ sudo usermod -a -G dialout $USER
 # then reboot
 ```
 
-## Arduino Nano
-
-choose board (old bootloader)
-
 ## Install modm requirements
 
 https://modm.io/guide/installation/
 
 ```sh
-sudo apt install python3 python3-pip scons git libncursesw6 openocd picocom avrdude
+sudo apt install python3 python3-pip scons git libncursesw6 openocd
 pip3 install modm
 wget -O- https://github.com/xpack-dev-tools/arm-none-eabi-gcc-xpack/releases/download/v13.3.1-1.1/xpack-arm-none-eabi-gcc-13.3.1-1.1-linux-x64.tar.gz | sudo tar xz -C /opt/
-wget -O- https://github.com/modm-io/avr-gcc/releases/download/v13.2.0/modm-avr-gcc.tar.bz2 | sudo tar xj -C /opt
 export PATH="/opt/xpack-arm-none-eabi-gcc-13.3.1-1.1/bin:$PATH"
-export PATH="/opt/avr-gcc/bin:$PATH"
 ```
 
 ## Clone this repo
@@ -63,8 +57,15 @@ scons -j8
 scons program
 ```
 
+if upload doesn't works on nucleo_l432kc:
+open servoboard_nucleo/modm/openocd.cfg and add after source ```source [find board/stm32l4discovery.cfg]```
 
+```tcl
+reset_config none
+```
 
+if upload doesn't works on stm32f446ret6:
+use the stlink from a nucleo, and hold the reset button when ```scons program```
 
 
 # Random stuff

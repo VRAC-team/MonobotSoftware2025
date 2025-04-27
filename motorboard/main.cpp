@@ -5,21 +5,13 @@
 #include <modm/debug/logger.hpp>
 #include <modm/driver/encoder/as5047.hpp>
 #include <limits>
+#include "can_identifiers.hpp"
 
 using namespace modm::literals;
 
 // Set the log level
 #undef	MODM_LOG_LEVEL
-#define	MODM_LOG_LEVEL modm::log::DISABLED
-
-#define CANID_MOTOR_SETPOINT 0x0
-#define CANID_MOTOR_STATUS 0x1 //sent by motorboard in response to setpoint
-
-#define CANID_MOTOR_SETPOINT_ERROR 0x100 //sent by motorboard if no setpoint in the last x ms and was not in error
-#define CANID_MOTOR_RESET_SETPOINT_ERROR 0x101
-#define CANID_MOTOR_ALIVE 0x1FF //sent periodically by motorboard
-
-#define CANID_RASPI_ALIVE 0x2FF //sent periodically by raspiboard
+#define	MODM_LOG_LEVEL modm::log::INFO
 
 using M1_pwm = GpioA8; //timer1 chan1
 using M2_pwm = GpioA9; //timer1 chan2
@@ -41,6 +33,8 @@ modm::as5047::Data enc1_data{0};
 modm::As5047<enc_SPI, enc1_cs> enc1{enc1_data};
 modm::as5047::Data enc2_data{0};
 modm::As5047<enc_SPI, enc2_cs> enc2{enc2_data};
+
+bool g_first_can_alive = true;
 
 struct SystemClock
 {
@@ -129,7 +123,7 @@ int main()
 	enc1_cs::setOutput(modm::Gpio::High);
 	enc2_cs::setOutput(modm::Gpio::High);
 
-	MODM_LOG_INFO << "starting motorboard_test_controller date:" << __DATE__ << " time:" __TIME__ << modm::endl;
+	MODM_LOG_INFO << "starting motorboard date:" << __DATE__ << " time:" __TIME__ << modm::endl;
 
 	Timer1::connect<M1_pwm::Ch1>();
 	Timer1::connect<M2_pwm::Ch2>();
@@ -142,17 +136,12 @@ int main()
 	Timer1::start();
 	Timer1::enableOutput();
 
-	// test_timer_sweep();
-
 	enc_SPI::connect<enc_miso::Miso, enc_mosi::Mosi, enc_sck::Sck>();
 	enc_SPI::initialize<SystemClock, 2.25_MHz>();
 
 	Can1::connect<GpioInputB8::Rx, GpioOutputB9::Tx>(Gpio::InputType::PullUp);
 	Can1::initialize<SystemClock, 1_Mbps>(9);
-
-	// only accept message in the range: 0x100 – 0x1FF
-	CanFilter::setFilter(0, CanFilter::FIFO0, CanFilter::ExtendedIdentifier(0), CanFilter::ExtendedFilterMask(0x400));
-	// CanFilter::setFilter(1, CanFilter::FIFO0, CanFilter::ExtendedIdentifier(0), CanFilter::ExtendedFilterMask(0));
+	CanFilter::setFilter(0, CanFilter::FIFO0, CanFilter::ExtendedIdentifier(0), CanFilter::ExtendedFilterMask(0x700)); // filter 0x000 to 0x0FF
 
 	uint16_t timer_overflow = Timer1::getOverflow();
 	bool setpoint_error = true;
@@ -164,8 +153,7 @@ int main()
 
 	while (true)
 	{
-		if (blinker.execute())
-		{
+		if (blinker.execute()) {
 			Board::LedD13::toggle();
 		}
 		
@@ -182,24 +170,21 @@ int main()
 
 			blinker.restart(50ms);
 
-			modm::can::Message msg(CANID_MOTOR_SETPOINT_ERROR, 4);
-			int32_t dur = setpoint_error_timeout.remaining().count();
-			msg.data[0] = dur >> 24 & 0xFF;
-			msg.data[1] = dur >> 16 & 0xFF;
-			msg.data[2] = dur >> 8 & 0xFF;
-			msg.data[3] = dur & 0xFF;
+			modm::can::Message msg(CANID_MOTOR_SETPOINT_ERROR, 0);
 			Can1::sendMessage(msg);
 		}
 
 		if (can_alive_timer.execute()) {
 
-			modm::can::Message response(CANID_MOTOR_ALIVE, 1);
-			response.data[0] = setpoint_error;
-			Can1::sendMessage(response);
+			modm::can::Message alive(CANID_MOTOR_ALIVE, 2);
+			alive.data[0] = g_first_can_alive;
+			alive.data[1] = setpoint_error;
+			Can1::sendMessage(alive);
+
+			g_first_can_alive = false;
 		}
 		
-		if (!Can1::isMessageAvailable())
-		{
+		if (!Can1::isMessageAvailable()) {
 			continue;
 		}
 
@@ -251,11 +236,11 @@ int main()
 			enc2.read();
 			uint16_t enc1_data_raw = enc1_data.data & 0x3FFF;
 			uint16_t enc2_data_raw = enc2_data.data & 0x3FFF;
-
+			
+			int32_t dur = setpoint_error_timeout.remaining().count();
 			setpoint_error_timeout.restart(10ms);
 
 			modm::can::Message response(CANID_MOTOR_STATUS, 6);
-			int32_t dur = setpoint_error_timeout.remaining().count();
 			response.data[0] = enc1_data_raw >> 8;
 			response.data[1] = enc1_data_raw & 0xFF;
 			response.data[2] = enc2_data_raw >> 8;

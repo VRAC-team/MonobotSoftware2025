@@ -10,8 +10,13 @@
     <module>modm:build:scons</module>
     <module>modm:debug</module>
     <module>modm:platform:can:1</module>
-    <module>modm:platform:timer:1</module>
+    <module>modm:platform:i2c:1</module>
+    <module>modm:platform:i2c:3</module>
     <module>modm:platform:gpio</module>
+    <module>modm:platform:adc:1</module>
     <module>modm:processing:timer</module>
   </modules>
+  <collectors>
+    <collect name="modm:build:path.include">../common/</collect>
+  </collectors>
 </library>

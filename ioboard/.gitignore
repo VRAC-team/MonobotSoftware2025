@@ -1,0 +1,6 @@
+modm/
+build/
+.vscode/
+project.xml.log
+SConstruct
+.sconsign.dblite
