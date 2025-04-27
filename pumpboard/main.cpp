@@ -7,13 +7,8 @@
 
 using bb_tx = GpioB7;
 
-//using Pumps = SoftwareGpioPort<GpioB10, GpioB1, GpioA6, GpioA5, GpioA2, GpioA0>;
 using Pumps = SoftwareGpioPort<GpioA0, GpioA2, GpioA5, GpioA6, GpioB1, GpioB10>;
-
-//using PumpsState = SoftwareGpioPort<GpioB11, GpioB0, GpioA7, GpioA4, GpioA3, GpioA1>;
 using PumpsState = SoftwareGpioPort<GpioA1, GpioA3, GpioA4, GpioA7, GpioB0, GpioB11>;
-
-//using Valves = SoftwareGpioPort<GpioA9, GpioA8, GpioB15, GpioB14, GpioB13, GpioB12>;
 using Valves = SoftwareGpioPort<GpioB12, GpioB13, GpioB14, GpioB15, GpioA8, GpioA9>;
 
 // Set the log level
@@ -113,42 +108,6 @@ void test_current_measure() {
 		}
 
 		// modm::delay(1ms);
-	}
-}
-
-void test_gpios()
-{
-	MODM_LOG_INFO << "Starting test_gpios" << modm::endl;
-
-	while (true)
-	{
-		for (uint8_t i = 0; i < 6; ++i)
-		{
-			MODM_LOG_INFO << "pump:" << i << modm::endl;
-
-			Pumps::write(1 << i);
-
-			modm::delay(2s);
-
-			Pumps::write(0);
-			Valves::write(1 << i);
-
-			modm::delay(200ms);
-
-			Valves::write(0);
-		}
-
-		MODM_LOG_INFO << "all pumps" << modm::endl;
-
-		Pumps::write(0b111111);
-		modm::delay(500ms);
-		Pumps::write(0);
-
-		MODM_LOG_INFO << "all valves" << modm::endl;
-
-		Valves::write(0b111111);
-		modm::delay(500ms);
-		Valves::write(0);
 	}
 }
 
@@ -254,14 +213,6 @@ int main()
 		uint8_t filter_id;
 		Can::getMessage(message, &filter_id);
 
-		// Check Alive
-		// if (message.identifier == CANdata::VacuumBoard::CheckBoardAlive_id && message.length == 0)
-		// {
-		// 	MODM_LOG_INFO << "Can: Check Alive" << modm::endl;
-		// 	modm::can::Message response(CANdata::VacuumBoard::CheckBoardAliveResponse_id, 0);
-		// 	Can::sendMessage(response);
-		// }
-		// Set Pumps
 		if (message.identifier == CANID_PUMP_SET && message.length == 2)
 		{
 			uint8_t pumpid = message.data[0];
