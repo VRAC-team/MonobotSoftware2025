@@ -1,8 +1,9 @@
 #include <modm/board.hpp>
-#include <modm/processing.hpp>
 #include <modm/debug/logger.hpp>
-#include <modm/math/filter.hpp>
 #include <modm/io/iodevice.hpp>
+#include <modm/math/filter.hpp>
+#include <modm/processing.hpp>
+
 #include "can_identifiers.hpp"
 
 using bb_tx = GpioB7;
@@ -17,28 +18,34 @@ using Valves = SoftwareGpioPort<GpioB12, GpioB13, GpioB14, GpioB15, GpioA8, Gpio
 
 class bitbang_uart {
 public:
-	static bool write(uint8_t data) {
-		bb_tx::reset();
-		modm::delay_us(104);
-		for (uint8_t i = 0 ; i < 8 ; ++i) {
-			if ((data >> i) & 1) {
-				bb_tx::set();
-			} else {
-				bb_tx::reset();
-			}
-			modm::delay_us(104);
-		}
-		bb_tx::set();
-		modm::delay_us(104);
-		return true;
-	}
+    static bool
+    write(uint8_t data)
+    {
+        bb_tx::reset();
+        modm::delay_us(104);
+        for (uint8_t i = 0; i < 8; ++i) {
+            if ((data >> i) & 1) {
+                bb_tx::set();
+            } else {
+                bb_tx::reset();
+            }
+            modm::delay_us(104);
+        }
+        bb_tx::set();
+        modm::delay_us(104);
+        return true;
+    }
 
-	static bool read(uint8_t &data) {
-		return true;
-	}
+    static bool
+    read(uint8_t& data)
+    {
+        return true;
+    }
 
-	static void flushWriteBuffer() {
-	}
+    static void
+    flushWriteBuffer()
+    {
+    }
 };
 
 modm::IODeviceWrapper<bitbang_uart, modm::IOBuffer::BlockIfFull> loggerDevice;
@@ -46,205 +53,192 @@ modm::log::Logger modm::log::info(loggerDevice);
 
 void test_can()
 {
-	MODM_LOG_INFO << "Starting test_can" << modm::endl;
+    MODM_LOG_INFO << "Starting test_can" << modm::endl;
 
-	while (true)
-	{
-		if (!Can::isMessageAvailable())
-		{
-			continue;
-		}
+    while (true) {
+        if (!Can::isMessageAvailable()) {
+            continue;
+        }
 
-		modm::can::Message message;
-		uint8_t filter_id;
-		Can::getMessage(message, &filter_id);
-		MODM_LOG_INFO << message << modm::endl;
+        modm::can::Message message;
+        uint8_t filter_id;
+        Can::getMessage(message, &filter_id);
+        MODM_LOG_INFO << message << modm::endl;
 
+        MODM_LOG_INFO << "testing SETPUMP" << modm::endl;
+        for (uint8_t i = 0; i < 6; ++i) {
+            modm::can::Message setpump1(CANID_PUMP_SET, 2);
+            setpump1.data[0] = i;
+            setpump1.data[1] = 1;
+            Can::sendMessage(setpump1);
+            modm::delay(500ms);
 
-		MODM_LOG_INFO << "testing SETPUMP" << modm::endl;
-		for (uint8_t i = 0; i < 6; ++i)
-		{
-			modm::can::Message setpump1(CANID_PUMP_SET, 2);
-			setpump1.data[0] = i;
-			setpump1.data[1] = 1;
-			Can::sendMessage(setpump1);
-			modm::delay(500ms);
-
-			modm::can::Message setpump2(CANID_PUMP_SET, 2);
-			setpump2.data[0] = i;
-			setpump2.data[1] = 0;
-			Can::sendMessage(setpump2);
-			modm::delay(500ms);
-		}
-	}
+            modm::can::Message setpump2(CANID_PUMP_SET, 2);
+            setpump2.data[0] = i;
+            setpump2.data[1] = 0;
+            Can::sendMessage(setpump2);
+            modm::delay(500ms);
+        }
+    }
 }
 
-void test_current_measure() {
-	MODM_LOG_INFO << "Starting test_current_measure" << modm::endl;
+void test_current_measure()
+{
+    MODM_LOG_INFO << "Starting test_current_measure" << modm::endl;
 
-	const uint8_t id = 0;
-	
-	modm::filter::MovingAverage<float, 100> avg;
+    const uint8_t id = 0;
 
-	Pumps::write(1 << id);
+    modm::filter::MovingAverage<float, 100> avg;
 
-	int i = 0;
+    Pumps::write(1 << id);
 
-	while (true)
-	{
-		uint8_t states = PumpsState::read();
-		uint8_t state = (states >> id) & 1;
-		avg.update(state);
+    int i = 0;
 
-		if (++i == 50) {
-			i = 0;
-			MODM_LOG_INFO << (int)(avg.getValue()*100) << modm::endl;
-		}
+    while (true) {
+        uint8_t states = PumpsState::read();
+        uint8_t state = (states >> id) & 1;
+        avg.update(state);
 
-		if (avg.getValue() >= 0.75f) {
-			Board::LedGreen::set();
-		} else {
-			Board::LedGreen::reset();
-		}
+        if (++i == 50) {
+            i = 0;
+            MODM_LOG_INFO << (int)(avg.getValue() * 100) << modm::endl;
+        }
 
-		// modm::delay(1ms);
-	}
+        if (avg.getValue() >= 0.75f) {
+            Board::LedGreen::set();
+        } else {
+            Board::LedGreen::reset();
+        }
+
+        // modm::delay(1ms);
+    }
 }
 
 int main()
 {
-	Board::initialize();
+    Board::initialize();
 
-	Pumps::setOutput();
-	PumpsState::setInput();
-	Valves::setOutput();
+    Pumps::setOutput();
+    PumpsState::setInput();
+    Valves::setOutput();
 
-	// Initialize Usart
-	// Usart1::connect<GpioOutputB6::Tx>();
-	// Usart1::initialize<Board::SystemClock, 115200_Bd>();
-	bb_tx::setOutput();
-	bb_tx::set();
+    // Initialize Usart
+    // Usart1::connect<GpioOutputB6::Tx>();
+    // Usart1::initialize<Board::SystemClock, 115200_Bd>();
+    bb_tx::setOutput();
+    bb_tx::set();
 
-	MODM_LOG_INFO << "pumpboard date:" << __DATE__ << " time:" __TIME__ << modm::endl;
+    MODM_LOG_INFO << "pumpboard date:" << __DATE__ << " time:" __TIME__ << modm::endl;
 
-	MODM_LOG_INFO << "Initializing Can..." << modm::endl;
-	Can::connect<GpioInputB8::Rx, GpioOutputB9::Tx>(Gpio::InputType::PullUp);
-	Can::initialize<Board::SystemClock, 1_Mbps>(9);
-	CanFilter::setFilter(0, CanFilter::FIFO0, CanFilter::ExtendedIdentifier(0x300), CanFilter::ExtendedFilterMask(0x700)); // filter 0x300 to 0x3FF
+    MODM_LOG_INFO << "Initializing Can..." << modm::endl;
+    Can::connect<GpioInputB8::Rx, GpioOutputB9::Tx>(Gpio::InputType::PullUp);
+    Can::initialize<Board::SystemClock, 1_Mbps>(9);
+    // filter 0x300 to 0x3FF
+    CanFilter::setFilter(0, CanFilter::FIFO0, CanFilter::ExtendedIdentifier(0x300), CanFilter::ExtendedFilterMask(0x700));
 
-	// test_can();
-	// test_gpios();
-	// test_current_measure();
+    // test_can();
+    // test_gpios();
+    // test_current_measure();
 
-    modm::PeriodicTimer blinker{100ms};
+    modm::PeriodicTimer blinker { 100ms };
 
     bool first_can_alive = true;
-	modm::PeriodicTimer can_alive_timer{1s};
+    modm::PeriodicTimer can_alive_timer { 1s };
 
-	modm::filter::MovingAverage<float, 200> current_avg[6];
-	modm::PeriodicTimer current_measure_timer{1ms};
-	modm::PeriodicTimer can_status_timer{100ms};
+    modm::filter::MovingAverage<float, 200> current_avg[6];
+    modm::PeriodicTimer current_measure_timer { 1ms };
+    modm::PeriodicTimer can_status_timer { 100ms };
 
-	int valve_autoclose_counters[6] = {-1, -1, -1, -1, -1, -1};
-	modm::PeriodicTimer valve_autoclose_timer{100ms};
+    int valve_autoclose_counters[6] = { -1, -1, -1, -1, -1, -1 };
+    modm::PeriodicTimer valve_autoclose_timer { 100ms };
 
-	while (true)
-	{
-		if (blinker.execute())
-		{
-			Board::LedGreen::toggle();
-		}
+    while (true) {
+        if (blinker.execute()) {
+            Board::LedGreen::toggle();
+        }
 
-		if (valve_autoclose_timer.execute()) {
-			for (uint8_t i = 0 ; i < 6 ; ++i) {
-				if (valve_autoclose_counters[i] >= 0) {
-					valve_autoclose_counters[i]++;
-				}
+        if (valve_autoclose_timer.execute()) {
+            for (uint8_t i = 0; i < 6; ++i) {
+                if (valve_autoclose_counters[i] >= 0) {
+                    valve_autoclose_counters[i]++;
+                }
 
-				if (valve_autoclose_counters[i] == 5) {
-					valve_autoclose_counters[i] = -1;
-					
-					uint8_t valves_states = Valves::read();
-					valves_states &= ~(1 << i); // clear bit
-					Valves::write(valves_states);
-				} 
-			}
-		}
+                if (valve_autoclose_counters[i] == 5) {
+                    valve_autoclose_counters[i] = -1;
 
-		if (current_measure_timer.execute())
-		{
-			uint8_t states = PumpsState::read();
+                    uint8_t valves_states = Valves::read();
+                    valves_states &= ~(1 << i); // clear bit
+                    Valves::write(valves_states);
+                }
+            }
+        }
 
-			for (uint8_t i = 0 ; i < 6 ; ++i) {
-				uint8_t state = (states >> i) & 1;
-				current_avg[i].update(state);
-			}
-		}
+        if (current_measure_timer.execute()) {
+            uint8_t states = PumpsState::read();
 
-		if (can_alive_timer.execute()) {
-			modm::can::Message alive(CANID_PUMP_ALIVE, 1);
+            for (uint8_t i = 0; i < 6; ++i) {
+                uint8_t state = (states >> i) & 1;
+                current_avg[i].update(state);
+            }
+        }
+
+        if (can_alive_timer.execute()) {
+            modm::can::Message alive(CANID_PUMP_ALIVE, 1);
             alive.data[0] = first_can_alive;
-			Can::sendMessage(alive);
+            Can::sendMessage(alive);
 
             first_can_alive = false;
-		}
+        }
 
-		if (can_status_timer.execute()) {
-			uint8_t pump_current_states = 0;
-			for (uint8_t i = 0 ; i < 6 ; ++i) {
-				if (current_avg[i].getValue() > 0.75f) {
-					pump_current_states |= 1 << i;
-				}
-			}
+        if (can_status_timer.execute()) {
+            uint8_t pump_current_states = 0;
+            for (uint8_t i = 0; i < 6; ++i) {
+                if (current_avg[i].getValue() > 0.75f) {
+                    pump_current_states |= 1 << i;
+                }
+            }
 
-			modm::can::Message response(CANID_PUMP_STATUS, 3);
-			response.data[0] = Pumps::read();
-			response.data[1] = Valves::read();
-			response.data[2] = pump_current_states;
-			Can::sendMessage(response);
-		}
-		
-		if (!Can::isMessageAvailable())
-		{
-			continue;
-		}
+            modm::can::Message response(CANID_PUMP_STATUS, 3);
+            response.data[0] = Pumps::read();
+            response.data[1] = Valves::read();
+            response.data[2] = pump_current_states;
+            Can::sendMessage(response);
+        }
 
-		modm::can::Message message;
-		uint8_t filter_id;
-		Can::getMessage(message, &filter_id);
+        if (!Can::isMessageAvailable()) {
+            continue;
+        }
 
-		if (message.identifier == CANID_PUMP_SET && message.length == 2)
-		{
-			uint8_t pumpid = message.data[0];
-			uint8_t pumpstate = message.data[1];
+        modm::can::Message message;
+        uint8_t filter_id;
+        Can::getMessage(message, &filter_id);
 
-			if (pumpid > 6) {
-				continue;
-			}
+        if (message.identifier == CANID_PUMP_SET && message.length == 2) {
+            uint8_t pumpid = message.data[0];
+            uint8_t pumpstate = message.data[1];
 
-			uint8_t pumps_states = Pumps::read();
-			
+            if (pumpid > 6) {
+                continue;
+            }
 
-			if (pumpstate == 1)
-			{
-				pumps_states |= 1 << pumpid; // set bit
-			}
-			else
-			{
-				pumps_states &= ~(1 << pumpid); // clear bit
+            uint8_t pumps_states = Pumps::read();
 
-				// automatically open valve on pump shutdown
+            if (pumpstate == 1) {
+                pumps_states |= 1 << pumpid; // set bit
+            } else {
+                pumps_states &= ~(1 << pumpid); // clear bit
 
-				uint8_t valves_states = Valves::read();
-				valves_states |= 1 << pumpid; // set bit
-				Valves::write(valves_states);
-				valve_autoclose_counters[pumpid] = 0;
-			}
+                // automatically open valve on pump shutdown
 
-			Pumps::write(pumps_states);
+                uint8_t valves_states = Valves::read();
+                valves_states |= 1 << pumpid; // set bit
+                Valves::write(valves_states);
+                valve_autoclose_counters[pumpid] = 0;
+            }
 
-		}
-	}
+            Pumps::write(pumps_states);
+        }
+    }
 
-	return 0;
+    return 0;
 }
