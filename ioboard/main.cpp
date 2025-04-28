@@ -117,16 +117,21 @@ uint16_t read_tors()
 typedef struct {
     int32_t current_position; // current absolute position in steps
     int32_t target_position;  // target absolute position in steps
-    int32_t steps_remaining;  // how many steps left to target
+    uint32_t steps_remaining;  // how many steps left to target
     float accel;              // steps/s²
     float vmax;               // steps/s
     float current_speed;      // current speed in steps/s
     float target_speed;       // maximum target speed
 
-    uint32_t next_step_delay_us;
-    int32_t accel_steps;
-    int32_t decel_steps;
-    int32_t cruise_steps;
+    uint32_t current_step_period_us;
+
+    uint32_t accel_steps;
+    uint32_t const_steps;
+    uint32_t decel_steps;
+    uint32_t remaining_steps_accel_phase;
+    uint32_t remaining_steps_const_phase;
+    uint32_t remaining_steps_decel_phase;
+
     int8_t direction;         // +1 or -1
 } Stepper;
 
@@ -152,11 +157,11 @@ void stepper_start_move(int32_t target, float accel, float vmax) {
     motor.accel = accel;
     motor.vmax = vmax;
     motor.current_speed = 0;
-    motor.next_step_delay_us = 1e6f * sqrtf(2.0f / motor.accel);
+    motor.current_step_period_us = 1000000.0f * sqrtf(2.0f / motor.accel);
 
     float accel_steps = (vmax * vmax) / (2.0f * accel);
 
-    MODM_LOG_INFO << "next_step_delay_us:" << motor.next_step_delay_us << modm::endl;
+    MODM_LOG_INFO << "current_step_period_us:" << motor.current_step_period_us << modm::endl;
     MODM_LOG_INFO << "accel_steps:" << accel_steps << modm::endl;
 
     if (2.0f * accel_steps > delta) {
@@ -165,23 +170,32 @@ void stepper_start_move(int32_t target, float accel, float vmax) {
         motor.target_speed = sqrtf(accel * delta);
         motor.accel_steps = delta / 2;
         motor.decel_steps = delta - motor.accel_steps;
-        motor.cruise_steps = 0;
+        motor.const_steps = 0;
     } else {
         // Trapezoidal profile
         MODM_LOG_INFO << "====Trapezoidal profile====" << modm::endl;
         motor.target_speed = vmax;
         motor.accel_steps = accel_steps;
         motor.decel_steps = accel_steps;
-        motor.cruise_steps = delta - motor.accel_steps - motor.decel_steps;
+        motor.const_steps = delta - motor.accel_steps - motor.decel_steps;
     }
 
     MODM_LOG_INFO << "target_speed:" << motor.target_speed << modm::endl;
     MODM_LOG_INFO << "accel_steps:" << motor.accel_steps << modm::endl;
-    MODM_LOG_INFO << "cruise_steps:" << motor.cruise_steps << modm::endl;
+    MODM_LOG_INFO << "const_steps:" << motor.const_steps << modm::endl;
     MODM_LOG_INFO << "decel_steps:" << motor.decel_steps << modm::endl;
+
+    // precompute as much as we can, to shorten stepper_update execution time
+    motor.accel /= 1000000.0f; //convert motor accel to steps/microseconds^2
+    motor.remaining_steps_decel_phase = motor.decel_steps;
+    motor.remaining_steps_const_phase = motor.decel_steps + motor.const_steps;
+    motor.remaining_steps_accel_phase = motor.decel_steps + motor.const_steps + motor.accel_steps;
 }
 
 void stepper_update() {
+    // disable interrupts there
+    modm::atomic::Lock lock;
+
     static uint32_t last_step_time = 0;
 
     if (motor.steps_remaining == 0) {
@@ -189,20 +203,22 @@ void stepper_update() {
     }
 
     uint32_t micros = modm::PreciseClock::now().time_since_epoch().count();
-    if (micros - last_step_time < motor.next_step_delay_us) {
+    if (micros - last_step_time < motor.current_step_period_us) {
         return;
     }
     last_step_time = micros;
 
-    if (motor.steps_remaining <= motor.decel_steps) {
-        motor.current_speed -= motor.accel * (motor.next_step_delay_us / 1e6f);
+    if (motor.steps_remaining <= motor.remaining_steps_decel_phase) {
+        motor.current_speed -= motor.accel * motor.current_step_period_us;
         if (motor.current_speed < 0) {
             motor.current_speed = 0;
         }
-    } else if (motor.steps_remaining <= motor.decel_steps + motor.cruise_steps) {
+    }
+    else if (motor.steps_remaining <= motor.remaining_steps_const_phase) {
         // do nothing, speed is constant here
-    } else if (motor.steps_remaining <= motor.decel_steps + motor.cruise_steps + motor.accel_steps) {
-        motor.current_speed += motor.accel * (motor.next_step_delay_us / 1e6f);
+    }
+    else if (motor.steps_remaining <= motor.remaining_steps_accel_phase) {
+        motor.current_speed += motor.accel * motor.current_step_period_us;
         if (motor.current_speed > motor.target_speed) {
             motor.current_speed = motor.target_speed;
         }
@@ -219,7 +235,7 @@ void stepper_update() {
         return;
     }
 
-    motor.next_step_delay_us = 1e6f / motor.current_speed;
+    motor.current_step_period_us = 1000000.0f / motor.current_speed;
 }
 
 void stepper_blocking_goto(int32_t target, float accel, float vmax) {
@@ -293,12 +309,9 @@ int main()
     float accel = steps_per_rev*60;
     float vmax = steps_per_rev*4.6;
     
-    stepper_blocking_goto(steps_per_rev, accel, vmax);
-    stepper_blocking_goto(0, accel, vmax);
-    stepper_blocking_goto(-steps_per_rev, accel, vmax);
-    stepper_blocking_goto(steps_per_rev/10, accel, vmax);
-    stepper_blocking_goto(0, accel, vmax);
-    modm::delay_ms(400);
+    stepper_blocking_goto(steps_per_rev, accel, steps_per_rev);
+    stepper_blocking_goto(0, accel, steps_per_rev);
+    modm::delay_ms(600);
     stepper_blocking_goto(steps_per_rev, accel/10, vmax);
     stepper_blocking_goto(0, accel/10, vmax);
 
