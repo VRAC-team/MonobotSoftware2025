@@ -114,13 +114,6 @@ uint16_t read_tors()
     return out;
 }
 
-typedef enum {
-    STEP_IDLE,
-    STEP_ACCEL,
-    STEP_CRUISE,
-    STEP_DECEL
-} StepperState;
-
 typedef struct {
     int32_t current_position; // current absolute position in steps
     int32_t target_position;  // target absolute position in steps
@@ -129,7 +122,7 @@ typedef struct {
     float vmax;               // steps/s
     float current_speed;      // current speed in steps/s
     float target_speed;       // maximum target speed
-    StepperState state;
+
     uint32_t next_step_delay_us;
     int32_t accel_steps;
     int32_t decel_steps;
@@ -142,7 +135,8 @@ Stepper motor;
 void stepper_start_move(int32_t target, float accel, float vmax) {
     int32_t delta = target - motor.current_position;
 
-    if (delta == 0) return; // No movement needed
+    if (delta == 0)
+        return;
 
     if (delta > 0) {
         dir5::set();
@@ -158,7 +152,6 @@ void stepper_start_move(int32_t target, float accel, float vmax) {
     motor.accel = accel;
     motor.vmax = vmax;
     motor.current_speed = 0;
-    motor.state = STEP_ACCEL;
     motor.next_step_delay_us = 1e6f * sqrtf(2.0f / motor.accel);
 
     float accel_steps = (vmax * vmax) / (2.0f * accel);
@@ -191,8 +184,7 @@ void stepper_start_move(int32_t target, float accel, float vmax) {
 void stepper_update() {
     static uint32_t last_step_time = 0;
 
-    if (motor.steps_remaining <= 0) {
-        motor.state = STEP_IDLE;
+    if (motor.steps_remaining == 0) {
         return;
     }
 
@@ -202,48 +194,43 @@ void stepper_update() {
     }
     last_step_time = micros;
 
-    switch (motor.state) {
-        case STEP_ACCEL:
-            motor.current_speed += motor.accel * (motor.next_step_delay_us / 1e6f);
-
-            if (motor.current_speed >= motor.target_speed || motor.steps_remaining <= motor.cruise_steps + motor.decel_steps) {
-                motor.current_speed = motor.target_speed;
-                if (motor.cruise_steps > 0)
-                    motor.state = STEP_CRUISE;
-                else
-                    motor.state = STEP_DECEL;
-            }
-            break;
-
-        case STEP_CRUISE:
-            if (motor.steps_remaining <= motor.decel_steps) {
-                motor.state = STEP_DECEL;
-            }
-            break;
-
-        case STEP_DECEL:
-            motor.current_speed -= motor.accel * (motor.next_step_delay_us / 1e6f);
-            if (motor.current_speed < 0) {
-                motor.current_speed = 0;
-            }
-            break;
-
-        default:
-            break;
+    if (motor.steps_remaining <= motor.decel_steps) {
+        motor.current_speed -= motor.accel * (motor.next_step_delay_us / 1e6f);
+        if (motor.current_speed < 0) {
+            motor.current_speed = 0;
+        }
+    } else if (motor.steps_remaining <= motor.decel_steps + motor.cruise_steps) {
+        // do nothing, speed is constant here
+    } else if (motor.steps_remaining <= motor.decel_steps + motor.cruise_steps + motor.accel_steps) {
+        motor.current_speed += motor.accel * (motor.next_step_delay_us / 1e6f);
+        if (motor.current_speed > motor.target_speed) {
+            motor.current_speed = motor.target_speed;
+        }
     }
 
-    // Issue a step pulse
     step5::set();
     modm::delay_ns(500);
     step5::reset();
 
-    // Update the logical current position
+    motor.steps_remaining--;
     motor.current_position += motor.direction;
 
-    // Compute delay for next step
-    motor.next_step_delay_us = 1e6f / motor.current_speed;
+    if (motor.steps_remaining == 0 || motor.current_speed == 0) {
+        return;
+    }
 
-    motor.steps_remaining--;
+    motor.next_step_delay_us = 1e6f / motor.current_speed;
+}
+
+void stepper_blocking_goto(int32_t target, float accel, float vmax) {
+    stepper_start_move(target, accel, vmax);
+
+    while (true) {
+        stepper_update();
+        if (motor.steps_remaining == 0) {
+            return;
+        }
+    }
 }
 
 int main()
@@ -303,12 +290,17 @@ int main()
 	// Timer2::start();
 
     uint32_t steps_per_rev = 200*8;
-    stepper_start_move(steps_per_rev*10, steps_per_rev*20, steps_per_rev*4);
-    uint32_t last_step_time = 0;
-
-    while (true) {
-        stepper_update();
-    }
+    float accel = steps_per_rev*60;
+    float vmax = steps_per_rev*4.6;
+    
+    stepper_blocking_goto(steps_per_rev, accel, vmax);
+    stepper_blocking_goto(0, accel, vmax);
+    stepper_blocking_goto(-steps_per_rev, accel, vmax);
+    stepper_blocking_goto(steps_per_rev/10, accel, vmax);
+    stepper_blocking_goto(0, accel, vmax);
+    modm::delay_ms(400);
+    stepper_blocking_goto(steps_per_rev, accel/10, vmax);
+    stepper_blocking_goto(0, accel/10, vmax);
 
     modm::PeriodicTimer blinker { 50ms };
     
