@@ -190,6 +190,10 @@ int main()
         uint8_t filter_id;
         Can1::getMessage(message, &filter_id);
 
+        if (message.identifier == CANID_MOTOR_REBOOT && message.length == 0) {
+            NVIC_SystemReset();
+        }
+
         if (message.identifier == CANID_MOTOR_SETPOINT && message.length == 4) {
             if (setpoint_error)
                 continue;

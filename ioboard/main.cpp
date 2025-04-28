@@ -20,17 +20,6 @@ using dir4 = GpioOutputA13;
 using step5 = GpioOutputB12;
 using dir5 = GpioOutputC4;
 
-using esc1 = GpioOutputC9;
-using esc2 = GpioOutputC8;
-using esc3 = GpioOutputA9;
-using esc4 = GpioOutputA8;
-
-using teach1 = GpioOutputC14;
-using teach2 = GpioOutputC13;
-using teach3 = GpioOutputB4;
-using teach4 = GpioOutputB3;
-using teach5 = GpioOutputD2;
-
 using hc165_clk = GpioOutputC11;
 using hc165_data = GpioOutputC10;
 using hc165_latch = GpioOutputC12;
@@ -107,8 +96,7 @@ uint16_t read_tors()
 {
     uint16_t out = 0;
 
-    const uint8_t tors_mapping[16] = { 12, 13, 14, 15, 0, 9, 10, 11,
-        5, 6, 7, 8, 1, 2, 3, 4 };
+    const uint8_t tors_mapping[16] = { 12, 13, 14, 15, 0, 9, 10, 11, 5, 6, 7, 8, 1, 2, 3, 4 };
 
     hc165_latch::reset();
     modm::delay_ns(100);
@@ -204,9 +192,9 @@ int main()
         uint8_t filter_id;
         Can1::getMessage(message, &filter_id);
 
-        // if (message.identifier == CANID_IOBOARD_SETPOINT && message.length == 4)
-        // {
-        // }
+        if (message.identifier == CANID_IO_REBOOT && message.length == 0) {
+            NVIC_SystemReset();
+        }
     }
 
     return 0;

@@ -200,6 +200,10 @@ int main()
         uint8_t filter_id;
         Can1::getMessage(message, &filter_id);
 
+        if (message.identifier == CANID_SERVO_REBOOT && message.length == 0) {
+            NVIC_SystemReset();
+        }
+
         if (message.identifier == CANID_SERVO_ENABLE_POWER && message.length == 3) {
             bool power1 = message.data[0];
             bool power2 = message.data[1];

@@ -213,6 +213,10 @@ int main()
         uint8_t filter_id;
         Can::getMessage(message, &filter_id);
 
+        if (message.identifier == CANID_PUMP_REBOOT && message.length == 0) {
+            NVIC_SystemReset();
+        }
+
         if (message.identifier == CANID_PUMP_SET && message.length == 2) {
             uint8_t pumpid = message.data[0];
             uint8_t pumpstate = message.data[1];
