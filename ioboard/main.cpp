@@ -117,7 +117,7 @@ uint16_t read_tors()
 typedef struct {
     int32_t current_position; // current absolute position in steps
     int32_t target_position;  // target absolute position in steps
-    uint32_t steps_remaining;  // how many steps left to target
+    volatile uint32_t steps_remaining;  // how many steps left to target
     float accel;              // steps/s²
     float vmax;               // steps/s
     float current_speed;      // current speed in steps/s
@@ -159,10 +159,7 @@ void stepper_start_move(int32_t target, float accel, float vmax) {
     motor.current_speed = 0;
     motor.current_step_period_us = 1000000.0f * sqrtf(2.0f / motor.accel);
 
-    float accel_steps = (vmax * vmax) / (2.0f * accel);
-
-    MODM_LOG_INFO << "current_step_period_us:" << motor.current_step_period_us << modm::endl;
-    MODM_LOG_INFO << "accel_steps:" << accel_steps << modm::endl;
+    float accel_steps = (vmax * vmax) / (2.0f * accel);  
 
     if (2.0f * accel_steps > delta) {
         // Triangle profile
@@ -180,7 +177,8 @@ void stepper_start_move(int32_t target, float accel, float vmax) {
         motor.const_steps = delta - motor.accel_steps - motor.decel_steps;
     }
 
-    MODM_LOG_INFO << "target_speed:" << motor.target_speed << modm::endl;
+    MODM_LOG_INFO << "current_step_period_us:" << motor.current_step_period_us << modm::endl;
+    MODM_LOG_INFO.printf("target_speed:%.2f\n", motor.target_speed);
     MODM_LOG_INFO << "accel_steps:" << motor.accel_steps << modm::endl;
     MODM_LOG_INFO << "const_steps:" << motor.const_steps << modm::endl;
     MODM_LOG_INFO << "decel_steps:" << motor.decel_steps << modm::endl;
@@ -190,28 +188,40 @@ void stepper_start_move(int32_t target, float accel, float vmax) {
     motor.remaining_steps_decel_phase = motor.decel_steps;
     motor.remaining_steps_const_phase = motor.decel_steps + motor.const_steps;
     motor.remaining_steps_accel_phase = motor.decel_steps + motor.const_steps + motor.accel_steps;
+
+	Timer9::enable();
+	Timer9::setMode(Timer9::Mode::OneShotUpCounter, Timer9::SlaveMode::Disabled, Timer9::SlaveModeTrigger::Internal0, Timer9::MasterMode::Reset);
+	Timer9::enableInterrupt(Timer9::Interrupt::Update);
+	Timer9::enableInterruptVector(true, 1);
+	Timer9::setPeriod<Board::SystemClock>(std::chrono::microseconds(motor.current_step_period_us));
+
+    MODM_LOG_INFO << "starting timer9 overflow=" << Timer9::getOverflow() << " prescaler=" << Timer9::getPrescaler() << modm::endl << modm::endl;
+    MODM_LOG_INFO << modm::flush;
+
+	Timer9::applyAndReset();
+	Timer9::start();
 }
 
-void stepper_update() {
-    // disable interrupts there
-    modm::atomic::Lock lock;
-
+void stepper_update_isr() {
     static uint32_t last_step_time = 0;
 
     if (motor.steps_remaining == 0) {
         return;
     }
 
-    uint32_t micros = modm::PreciseClock::now().time_since_epoch().count();
-    if (micros - last_step_time < motor.current_step_period_us) {
+    motor.steps_remaining--;
+    motor.current_position += motor.direction;
+
+    if (motor.steps_remaining == 0) {
         return;
     }
-    last_step_time = micros;
 
     if (motor.steps_remaining <= motor.remaining_steps_decel_phase) {
         motor.current_speed -= motor.accel * motor.current_step_period_us;
         if (motor.current_speed < 0) {
-            motor.current_speed = 0;
+            motor.steps_remaining = 0;
+            MODM_LOG_INFO << "current_speed < 0, is this normal ?" << modm::endl << modm::flush;
+            return;
         }
     }
     else if (motor.steps_remaining <= motor.remaining_steps_const_phase) {
@@ -224,25 +234,30 @@ void stepper_update() {
         }
     }
 
-    step5::set();
-    modm::delay_ns(500);
-    step5::reset();
-
-    motor.steps_remaining--;
-    motor.current_position += motor.direction;
-
-    if (motor.steps_remaining == 0 || motor.current_speed == 0) {
-        return;
-    }
-
     motor.current_step_period_us = 1000000.0f / motor.current_speed;
+    Timer9::setPeriod<Board::SystemClock>(std::chrono::microseconds(motor.current_step_period_us));
+    Timer9::start();
+
+    step5::set();
+    modm::delay_ns(100);
+    step5::reset();
+}
+
+
+MODM_ISR(TIM1_BRK_TIM9)
+{
+    // disable interrupts there
+    modm::atomic::Lock lock;
+
+	Timer9::acknowledgeInterruptFlags(Timer9::InterruptFlag::Update);
+
+    stepper_update_isr();
 }
 
 void stepper_blocking_goto(int32_t target, float accel, float vmax) {
     stepper_start_move(target, accel, vmax);
 
     while (true) {
-        stepper_update();
         if (motor.steps_remaining == 0) {
             return;
         }
@@ -297,23 +312,15 @@ int main()
     
     step_en::set();
 
-	// Timer2::enable();
-	// Timer2::setMode(Timer2::Mode::UpCounter, Timer2::SlaveMode::Disabled, Timer2::SlaveModeTrigger::Internal0, Timer2::MasterMode::Reset, true);
-	// Timer2::setPeriod<Board::SystemClock>(std::chrono::microseconds(current_period));
-	// Timer2::enableInterrupt(Timer2::Interrupt::Update);
-	// Timer2::enableInterruptVector(true, 1);
-	// Timer2::applyAndReset();
-	// Timer2::start();
-
     uint32_t steps_per_rev = 200*8;
     float accel = steps_per_rev*60;
     float vmax = steps_per_rev*4.6;
     
-    stepper_blocking_goto(steps_per_rev, accel, steps_per_rev);
-    stepper_blocking_goto(0, accel, steps_per_rev);
+    stepper_blocking_goto(steps_per_rev, accel, vmax);
+    stepper_blocking_goto(0, accel, vmax);
     modm::delay_ms(600);
-    stepper_blocking_goto(steps_per_rev, accel/10, vmax);
-    stepper_blocking_goto(0, accel/10, vmax);
+    stepper_blocking_goto(steps_per_rev, accel/500, vmax);
+    stepper_blocking_goto(0, accel/500, vmax);
 
     modm::PeriodicTimer blinker { 50ms };
     
