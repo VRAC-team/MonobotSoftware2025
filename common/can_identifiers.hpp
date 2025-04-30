@@ -62,19 +62,40 @@
 
 #define CANID_IO_STEPPER_HOME 0x202
 // home a stepper
-// <u8 id(0-4)>
+// <u8 stepper_id(0-4)>
+// <i16 max_relative_steps_before_error>
+// <u8 tor_id(0-15)>
+// <u8 tor_state_to_end_homing(0-1)>
 
-#define CANID_IO_STEPPER_GOTO 0x203
+#define CANID_IO_STEPPER_HOME_FAILED 0x203
+// sent by ioboard, when HOME could not be done because max_steps is reached and the tor state was not changed to the desired state
+// <u8 stepper_id(0-4)>
+
+#define CANID_IO_STEPPER_HOME_SUCCEEDED 0x204
+// sent by ioboard, when HOME is done
+// <u8 stepper_id(0-4)>
+
+#define CANID_IO_STEPPER_GOTO 0x205
 // move a stepper to absolute steps
-// <u8 id(0-4)>
-// <i16 steps>
+// <u8 stepper_id(0-4)>
+// <i16 absolute_steps>
+// <u24 acceleleration>
+// <u16 max_velocity>
+
+#define CANID_IO_STEPPER_GOTO_ERROR_MOTION_IN_PROGRESS 0x206
+// sent by ioboard, when a stepper is already moving it cannot accept another GOTO
+// <u8 stepper_id(0-4)>
+
+#define CANID_IO_STEPPER_GOTO_FINISHED 0x207
+// sent by ioboard, when GOTO is done
+// <u8 stepper_id(0-4)>
 
 #define CANID_IO_STATUS 0x2EE
-//sent periodically by ioboard
+// sent periodically by ioboard
 // <u16 tors(bitset)>
 
 #define CANID_IO_ALIVE 0x2FF
-//sent periodically by ioboard
+// sent periodically by ioboard
 // <u8 first_alive_since_reboot(bool)>
 
 
