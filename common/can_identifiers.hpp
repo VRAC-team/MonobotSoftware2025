@@ -56,38 +56,55 @@
 #define CANID_IO_REBOOT 0x200
 // reboot the board
 
-#define CANID_IO_STEPPER_ENABLE 0x201
-// enable/disable all steppers
+#define CANID_IO_STEPPER_ERROR_DISABLED_DURING_MOTION 0x201
+// sent by ioboard, when there was a HOME or GOTO in progress but then received a power DISABLE. All motions were canceled
+// <u8 steppers_that_were_active(bitset)>
+
+#define CANID_IO_STEPPER_ERROR_NOT_ENABLED 0x202
+// sent by ioboard, when a new HOME or GOTO is received but the steppers are not enabled
+
+#define CANID_IO_STEPPER_ERROR_MOTION_IN_PROGRESS 0x203
+// sent by ioboard, when a new HOME or GOTO is received but the stepper_id is already doin one of them
+// <u8 stepper_id(0-4)>
+
+#define CANID_IO_STEPPER_ENABLE 0x204
+// enable/disable all steppers drivers
+// if there is a HOME or GOTO in progress, cancel all of them. ioboard will send a ERROR_DISABLED_DURING_MOTION
 // <u8 enable(bool)>
 
-#define CANID_IO_STEPPER_HOME 0x202
+#define CANID_IO_STEPPER_HOME 0x205
 // home a stepper
+// if the steppers are not enabled, ioboard will send a ERROR_NOT_ENABLED
+// if the stepper_id is already doin HOME or GOTO, then ioboard will send a ERROR_MOTION_IN_PROGRESS
+// if max_relative_steps_before_error is zero, ioboard will send HOME_SUCCEEDED
+// when tor_state_to_end_homing is matched, current_position is reset to 0 and ioboard will send HOME_SUCCEEDED
+// when max_relative_steps_before_error is reached without tor state, ioboard will send HOME_FAILED
 // <u8 stepper_id(0-4)>
 // <i16 max_relative_steps_before_error>
 // <u8 tor_id(0-15)>
 // <u8 tor_state_to_end_homing(0-1)>
 
-#define CANID_IO_STEPPER_HOME_FAILED 0x203
-// sent by ioboard, when HOME could not be done because max_steps is reached and the tor state was not changed to the desired state
+#define CANID_IO_STEPPER_HOME_FAILED 0x206
+// sent by ioboard, when HOME could not be done because max_relative_steps_before_error is reached and the tor state was not changed to the desired state
 // <u8 stepper_id(0-4)>
 
-#define CANID_IO_STEPPER_HOME_SUCCEEDED 0x204
+#define CANID_IO_STEPPER_HOME_SUCCEEDED 0x207
 // sent by ioboard, when HOME is done
 // <u8 stepper_id(0-4)>
 
-#define CANID_IO_STEPPER_GOTO 0x205
+#define CANID_IO_STEPPER_GOTO 0x208
 // move a stepper to absolute steps
+// if the stepper_id is already doin HOME or GOTO, then ioboard will send a ERROR_MOTION_IN_PROGRESS
+// if the steppers are not enabled, ioboard will send a ERROR_NOT_ENABLED
+// if the absolute_steps is zero, ioboard will send a GOTO_FINISHED
+// if the GOTO is done, ioboard will send a GOTO_FINISHED
 // <u8 stepper_id(0-4)>
 // <i16 absolute_steps>
 // <u24 acceleleration>
 // <u16 max_velocity>
 
-#define CANID_IO_STEPPER_GOTO_ERROR_MOTION_IN_PROGRESS 0x206
-// sent by ioboard, when a stepper is already moving it cannot accept another GOTO
-// <u8 stepper_id(0-4)>
-
-#define CANID_IO_STEPPER_GOTO_FINISHED 0x207
-// sent by ioboard, when GOTO is done
+#define CANID_IO_STEPPER_GOTO_FINISHED 0x209
+// sent by ioboard, when GOTO has finished
 // <u8 stepper_id(0-4)>
 
 #define CANID_IO_STATUS 0x2EE

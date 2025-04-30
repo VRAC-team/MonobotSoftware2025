@@ -5,7 +5,7 @@
 
 // Set the log level
 #undef MODM_LOG_LEVEL
-#define MODM_LOG_LEVEL modm::log::DISABLED
+#define MODM_LOG_LEVEL modm::log::INFO
 
 using step_en = GpioInverted<GpioOutputA15>;
 using step1 = GpioOutputA12;
@@ -119,6 +119,7 @@ public:
     virtual ~IAccelStepper() = default;
     virtual bool home(int32_t max_relative_steps_before_error, uint32_t acceleration, uint32_t max_velocity, uint8_t homing_tor_index, bool tor_state_to_end_homing) = 0;
     virtual bool goto_absolute(int32_t absolute_steps, uint32_t acceleration, uint32_t max_velocity) = 0;
+    virtual void cancel_current_motion() = 0;
     virtual void isr_step() = 0;
     virtual bool is_doing_goto() = 0;
     virtual bool is_doing_home() = 0;
@@ -144,14 +145,20 @@ public:
     }
 
     bool home(int32_t max_relative_steps_before_error, uint32_t acceleration, uint32_t max_velocity, uint8_t homing_tor_index, bool tor_state_to_end_homing) {
-        if (m_is_doing_goto) {
-            m_is_doing_goto = false;
-            Timer::pause();
+        if (m_is_doing_goto || m_is_doing_home) {
+            return false;
         }
 
-        uint32_t total_steps = max_relative_steps_before_error;
+        if (acceleration == 0 || max_velocity == 0) {
+            return false;
+        }
 
-        if (total_steps == 0 || acceleration == 0 || max_velocity == 0) {
+        uint32_t total_steps = abs(max_relative_steps_before_error);
+
+        if (total_steps == 0) {
+            m_flag_homing_has_succeeded = true;
+            m_flag_homing_has_failed = false;
+            m_flag_goto_has_finished = false;
             return false;
         }
 
@@ -161,7 +168,6 @@ public:
         } else {
             Dir::reset();
             m_direction = -1;
-            total_steps = -max_relative_steps_before_error;
         }
 
         m_homing_tor_index = homing_tor_index;
@@ -214,20 +220,22 @@ public:
         if (acceleration == 0 || max_velocity == 0) {
             return false;
         }
-    
-        int32_t total_steps = absolute_steps - m_current_position;
-    
+
+        uint32_t total_steps = abs(absolute_steps - m_current_position);
+
         if (total_steps == 0) {
-            return true;
+            m_flag_homing_has_succeeded = false;
+            m_flag_homing_has_failed = false;
+            m_flag_goto_has_finished = true;
+            return false;
         }
     
-        if (total_steps > 0) {
+        if (absolute_steps > 0) {
             Dir::set();
             m_direction = 1;
         } else {
             Dir::reset();
             m_direction = -1;
-            total_steps = -total_steps;
         }
         
         m_flag_homing_has_succeeded = false;
@@ -247,11 +255,20 @@ public:
         
         // if the profile is a triangle, recalculate steps
         if (2.0f * m_accel_steps > total_steps) {
+            MODM_LOG_INFO << "---Triangle profile" << modm::endl;
             m_max_velocity = sqrtf(m_acceleration * total_steps);
             m_accel_steps = total_steps / 2;
             m_decel_steps = total_steps - m_accel_steps;
             m_const_steps = 0;
         }
+
+        MODM_LOG_INFO << "== goto_absolute ==" << modm::endl;
+        MODM_LOG_INFO << "m_steps_remaining=" << m_steps_remaining << modm::endl;
+        MODM_LOG_INFO << "m_accel_steps=" << m_accel_steps << modm::endl;
+        MODM_LOG_INFO << "m_const_steps=" << m_const_steps << modm::endl;
+        MODM_LOG_INFO << "m_decel_steps=" << m_decel_steps << modm::endl;
+        MODM_LOG_INFO << modm::endl;
+        MODM_LOG_INFO.flush();
     
         // precompute as much as we can, to shorten isr_step() execution time
         m_acceleration /= 1000000.0f; //convert motor accel to steps/microseconds^2
@@ -273,6 +290,21 @@ public:
         return true;
     }
 
+    void cancel_current_motion() {
+        modm::atomic::Lock lock;
+
+        Timer::pause();
+
+        m_is_doing_goto = false;
+        m_is_doing_home = false;
+
+        m_flag_homing_has_succeeded = false;
+        m_flag_homing_has_failed = false;
+        m_flag_goto_has_finished = false;
+
+        m_steps_remaining = 0;
+    }
+
     void isr_step() {
         if (m_is_doing_home) {
             // uint16_t tors = read_tors(); // I measured 8527ns for this line, good enough i guess
@@ -290,6 +322,8 @@ public:
         m_current_position += m_direction;
     
         Step::set();
+        // according to datasheet, step high time should be at least 1.9us ish if i understood correctly, another timer could be used to create this delay
+        // but with my testings, this is working fine with 100ns
         modm::delay_ns(100);
         Step::reset();
     
@@ -300,7 +334,7 @@ public:
                 return;
             }
             
-            else if (m_is_doing_home) {
+            if (m_is_doing_home) {
                 m_is_doing_home = false;
                 m_flag_homing_has_failed = true;
                 return;
@@ -317,7 +351,7 @@ public:
             }
         }
         else if (m_steps_remaining <= m_remaining_steps_const_phase) {
-            // do nothing, speed is constant here
+            m_current_velocity = m_max_velocity;
         }
         else if (m_steps_remaining <= m_remaining_steps_accel_phase) {
             m_current_velocity += m_acceleration * m_current_step_period_us;
@@ -467,16 +501,44 @@ void handle_can_messages() {
     if (message.identifier == CANID_IO_STEPPER_ENABLE && message.length == 1) {
         bool en = message.data[0] & 1;
 
+        uint8_t steppers_that_were_active = 0;
+        for (uint8_t stepper_id = 0 ; stepper_id < 5 ; ++stepper_id) {
+            if (steppers[stepper_id]->is_doing_goto() || steppers[stepper_id]->is_doing_home()) {
+                steppers[stepper_id]->cancel_current_motion();
+                steppers_that_were_active |= 1 << stepper_id;
+            }
+        }
+
+        if (steppers_that_were_active != 0) {
+            modm::can::Message err(CANID_IO_STEPPER_ERROR_DISABLED_DURING_MOTION, 1);
+            err.data[0] = steppers_that_were_active;
+            Can1::sendMessage(err);
+            return;
+        }
+
         step_en::set(en);
     }
 
-    else if (message.identifier == CANID_IO_STEPPER_HOME && message.length == 6) {
+    else if (message.identifier == CANID_IO_STEPPER_HOME && message.length == 5) {
         uint8_t stepper_id = message.data[0];
         int16_t max_relative_steps_before_error = message.data[1] << 8 | message.data[2];
         uint8_t tor_id = message.data[3];
         bool tor_state_to_end_homing = message.data[4] & 1;
 
         if (stepper_id >= 5 || tor_id >= 16) {
+            return;
+        }
+
+        if (!step_en::read()) {
+            modm::can::Message err(CANID_IO_STEPPER_ERROR_NOT_ENABLED, 0);
+            Can1::sendMessage(err);
+            return;
+        }
+
+        if (steppers[stepper_id]->is_doing_home() || steppers[stepper_id]->is_doing_goto()) {
+            modm::can::Message err(CANID_IO_STEPPER_ERROR_MOTION_IN_PROGRESS, 1);
+            err.data[0] = stepper_id;
+            Can1::sendMessage(err);
             return;
         }
 
@@ -495,8 +557,14 @@ void handle_can_messages() {
             return;
         }
 
-        if (steppers[stepper_id]->is_doing_goto()) {
-            modm::can::Message err(CANID_IO_STEPPER_GOTO_ERROR_MOTION_IN_PROGRESS, 1);
+        if (!step_en::read()) {
+            modm::can::Message err(CANID_IO_STEPPER_ERROR_NOT_ENABLED, 0);
+            Can1::sendMessage(err);
+            return;
+        }
+
+        if (steppers[stepper_id]->is_doing_home() || steppers[stepper_id]->is_doing_goto()) {
+            modm::can::Message err(CANID_IO_STEPPER_ERROR_MOTION_IN_PROGRESS, 1);
             err.data[0] = stepper_id;
             Can1::sendMessage(err);
             return;
