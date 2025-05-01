@@ -1,0 +1,43 @@
+# Auto-generated on 2025-05-01 12:30:49
+
+class CANIDS:
+    CANID_MOTOR_REBOOT = 0x00
+    CANID_MOTOR_SETPOINT = 0x01
+    CANID_MOTOR_SETPOINT_RESPONSE = 0x02
+    CANID_MOTOR_SETPOINT_ERROR = 0x03
+    CANID_MOTOR_RESET_SETPOINT_ERROR = 0x04
+    CANID_MOTOR_STATUS = 0xee
+    CANID_MOTOR_ALIVE = 0xff
+    CANID_SERVO_REBOOT = 0x100
+    CANID_SERVO_ENABLE_POWER = 0x101
+    CANID_SERVO_WRITE_US = 0x102
+    CANID_SERVO_SET_LED_PATTERN = 0x103
+    CANID_SERVO_STATUS = 0x1ee
+    CANID_SERVO_ALIVE = 0x1ff
+    CANID_IO_REBOOT = 0x200
+    CANID_IO_STEPPER_ERROR_DISABLED_DURING_MOTION = 0x201
+    CANID_IO_STEPPER_ERROR_NOT_ENABLED = 0x202
+    CANID_IO_STEPPER_ERROR_MOTION_IN_PROGRESS = 0x203
+    CANID_IO_STEPPER_ENABLE = 0x204
+    CANID_IO_STEPPER_HOME = 0x205
+    CANID_IO_STEPPER_HOME_FAILED = 0x206
+    CANID_IO_STEPPER_HOME_SUCCEEDED = 0x207
+    CANID_IO_STEPPER_GOTO = 0x208
+    CANID_IO_STEPPER_GOTO_FINISHED = 0x209
+    CANID_IO_STATUS = 0x2ee
+    CANID_IO_ALIVE = 0x2ff
+    CANID_PUMP_REBOOT = 0x300
+    CANID_PUMP_SET = 0x301
+    CANID_PUMP_STATUS = 0x3ee
+    CANID_PUMP_ALIVE = 0x3ff
+
+    @classmethod
+    def get_name(cls, can_id: int) -> str:
+        """
+        Return the name of the CAN ID constant from its value.
+        Raises KeyError if not found.
+        """
+        for name, value in cls.__dict__.items():
+            if not name.startswith("__") and value == can_id:
+                return name
+        raise KeyError(f"CAN ID 0x{can_id:X} not found in CANIDS.")

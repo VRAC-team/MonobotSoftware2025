@@ -1,0 +1,51 @@
+import re
+from datetime import datetime
+from pathlib import Path
+
+HEADER_FILE = "common/can_identifiers.hpp"
+OUTPUT_FILE = "raspiboard/canids.py"
+DEFINE_PATTERN = re.compile(r"#define\s+([A-Z0-9_]+)\s+(0x[0-9A-Fa-f]+)")
+
+def parse_header_file(filepath):
+    identifiers = []
+    with open(filepath, "r") as file:
+        for line_num, line in enumerate(file, 1):
+            match = DEFINE_PATTERN.match(line.strip())
+            if match:
+                name, hex_value = match.groups()
+                try:
+                    value = int(hex_value, 16)
+                    identifiers.append((name, value))
+                except ValueError:
+                    print(f"Warning: Invalid hex value at line {line_num}: {line.strip()}")
+    return identifiers
+
+def generate_python_module(identifiers, output_path):
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    with open(output_path, "w") as f:
+        f.write(f"# Auto-generated on {timestamp}\n\n")
+        f.write("class CANIDS:\n")
+        for name, value in identifiers:
+            f.write(f"    {name} = {value:#04x}\n")
+        f.write("\n")
+        f.write("    @classmethod\n")
+        f.write("    def get_name(cls, can_id: int) -> str:\n")
+        f.write("        \"\"\"\n")
+        f.write("        Return the name of the CAN ID constant from its value.\n")
+        f.write("        Raises KeyError if not found.\n")
+        f.write("        \"\"\"\n")
+        f.write("        for name, value in cls.__dict__.items():\n")
+        f.write("            if not name.startswith(\"__\") and value == can_id:\n")
+        f.write("                return name\n")
+        f.write("        raise KeyError(f\"CAN ID 0x{can_id:X} not found in CANIDS.\")\n")
+
+
+def main():
+    identifiers = parse_header_file(HEADER_FILE)
+    generate_python_module(identifiers, OUTPUT_FILE)
+    print(f"Generated {OUTPUT_FILE} with {len(identifiers)} identifiers:")
+    for name, value in identifiers:
+        print(f"  {name} = {value:#04x}")
+
+if __name__ == "__main__":
+    main()
