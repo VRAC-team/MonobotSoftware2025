@@ -1,5 +1,6 @@
 modm/
 build/
+artifacts/
 .vscode/
 project.xml.log
 SConstruct
