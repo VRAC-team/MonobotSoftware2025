@@ -472,7 +472,7 @@ void handle_can_messages() {
         NVIC_SystemReset();
     }
 
-    if (message.identifier == CANID_IO_STEPPER_ENABLE && message.length == 1) {
+    else if (message.identifier == CANID_IO_STEPPER_ENABLE && message.length == 1) {
         bool en = message.data[0] & 1;
 
         uint8_t steppers_that_were_active = 0;
@@ -486,6 +486,7 @@ void handle_can_messages() {
 
         if (steppers_that_were_active != 0) {
             modm::can::Message err(CANID_IO_STEPPER_ERROR_DISABLED_DURING_MOTION, 1);
+            err.setExtended(false);
             err.data[0] = steppers_that_were_active;
             Can1::sendMessage(err);
             return;
@@ -501,11 +502,16 @@ void handle_can_messages() {
         bool tor_state_to_end_homing = message.data[4] & 1;
 
         if (stepper_id >= 5 || tor_id >= 16) {
+            modm::can::Message err(CANID_IO_STEPPER_ERROR_INVALID_PARAMS, 1);
+            err.setExtended(false);
+            err.data[0] = stepper_id;
+            Can1::sendMessage(err);
             return;
         }
 
         if (!step_en::read()) {
             modm::can::Message err(CANID_IO_STEPPER_ERROR_NOT_ENABLED, 0);
+            err.setExtended(false);
             Can1::sendMessage(err);
             return;
         }
@@ -518,22 +524,27 @@ void handle_can_messages() {
 
         if (res == MotionStartResult::Error_InvalidParams) {
             modm::can::Message err(CANID_IO_STEPPER_ERROR_INVALID_PARAMS, 1);
+            err.setExtended(false);
             err.data[0] = stepper_id;
             Can1::sendMessage(err);
         } else if (res == MotionStartResult::Error_AlreadyInMotion) {
             modm::can::Message err(CANID_IO_STEPPER_ERROR_MOTION_IN_PROGRESS, 1);
+            err.setExtended(false);
             err.data[0] = stepper_id;
             Can1::sendMessage(err);
         } else if (res == MotionStartResult::AlreadyDone) {
             modm::can::Message starting(CANID_IO_STEPPER_HOME_STARTING, 1);
+            starting.setExtended(false);
             starting.data[0] = stepper_id;
             Can1::sendMessage(starting);
 
             modm::can::Message succeeded(CANID_IO_STEPPER_HOME_SUCCEEDED, 1);
+            succeeded.setExtended(false);
             succeeded.data[0] = stepper_id;
             Can1::sendMessage(succeeded);
         } else if (res == MotionStartResult::Started) {
             modm::can::Message starting(CANID_IO_STEPPER_HOME_STARTING, 1);
+            starting.setExtended(false);
             starting.data[0] = stepper_id;
             Can1::sendMessage(starting);
         }
@@ -546,11 +557,16 @@ void handle_can_messages() {
         uint16_t max_velocity = (message.data[6] << 8) | message.data[7];
 
         if (stepper_id >= 5) {
+            modm::can::Message err(CANID_IO_STEPPER_ERROR_INVALID_PARAMS, 1);
+            err.setExtended(false);
+            err.data[0] = stepper_id;
+            Can1::sendMessage(err);
             return;
         }
 
         if (!step_en::read()) {
             modm::can::Message err(CANID_IO_STEPPER_ERROR_NOT_ENABLED, 0);
+            err.setExtended(false);
             Can1::sendMessage(err);
             return;
         }
@@ -559,22 +575,27 @@ void handle_can_messages() {
 
         if (res == MotionStartResult::Error_InvalidParams) {
             modm::can::Message err(CANID_IO_STEPPER_ERROR_INVALID_PARAMS, 1);
+            err.setExtended(false);
             err.data[0] = stepper_id;
             Can1::sendMessage(err);
         } else if (res == MotionStartResult::Error_AlreadyInMotion) {
             modm::can::Message err(CANID_IO_STEPPER_ERROR_MOTION_IN_PROGRESS, 1);
+            err.setExtended(false);
             err.data[0] = stepper_id;
             Can1::sendMessage(err);
         } else if (res == MotionStartResult::AlreadyDone) {
             modm::can::Message starting(CANID_IO_STEPPER_GOTO_STARTING, 1);
+            starting.setExtended(false);
             starting.data[0] = stepper_id;
             Can1::sendMessage(starting);
 
             modm::can::Message finished(CANID_IO_STEPPER_GOTO_FINISHED, 1);
+            finished.setExtended(false);
             finished.data[0] = stepper_id;
             Can1::sendMessage(finished);
         } else if (res == MotionStartResult::Started) {
             modm::can::Message starting(CANID_IO_STEPPER_GOTO_STARTING, 1);
+            starting.setExtended(false);
             starting.data[0] = stepper_id;
             Can1::sendMessage(starting);
         }
@@ -605,7 +626,7 @@ int main()
     Can1::connect<GpioInputB8::Rx, GpioOutputB9::Tx>(Gpio::InputType::PullUp);
     Can1::initialize<SystemClock, 1_Mbps>(9);
     // filter 0x200 to 0x2FF
-    CanFilter::setFilter(0, CanFilter::FIFO0, CanFilter::ExtendedIdentifier(0x200), CanFilter::ExtendedFilterMask(0x700));
+    CanFilter::setFilter(0, CanFilter::FIFO0, CanFilter::StandardIdentifier(0x200), CanFilter::StandardFilterMask(0x700));
 
     modm::PeriodicTimer blinker { 50ms };
     
@@ -621,6 +642,7 @@ int main()
 
         if (can_alive_timer.execute()) {
             modm::can::Message alive(CANID_IO_ALIVE, 1);
+            alive.setExtended(false);
             alive.data[0] = first_can_alive;
             Can1::sendMessage(alive);
 
@@ -631,6 +653,7 @@ int main()
             uint16_t tors = read_tors();
 
             modm::can::Message status(CANID_IO_STATUS, 2);
+            status.setExtended(false);
             status.data[0] = tors >> 8;
             status.data[1] = tors & 0xFF;
             Can1::sendMessage(status);
@@ -643,6 +666,7 @@ int main()
                 steppers[stepper_id]->clear_status_flag();
 
                 modm::can::Message msg(CANID_IO_STEPPER_HOME_SUCCEEDED, 1);
+                msg.setExtended(false);
                 msg.data[0] = stepper_id;
                 Can1::sendMessage(msg);
             }
@@ -650,15 +674,17 @@ int main()
             else if (status == MotionStatus::FlagHomeFailed) {
                 steppers[stepper_id]->clear_status_flag();
 
-                modm::can::Message err(CANID_IO_STEPPER_HOME_FAILED, 1);
-                err.data[0] = stepper_id;
-                Can1::sendMessage(err);
+                modm::can::Message msg(CANID_IO_STEPPER_HOME_FAILED, 1);
+                msg.setExtended(false);
+                msg.data[0] = stepper_id;
+                Can1::sendMessage(msg);
             }
 
             else if (status == MotionStatus::FlagGotoFinished) {
                 steppers[stepper_id]->clear_status_flag();
 
                 modm::can::Message msg(CANID_IO_STEPPER_GOTO_FINISHED, 1);
+                msg.setExtended(false);
                 msg.data[0] = stepper_id;
                 Can1::sendMessage(msg);
             }

@@ -75,29 +75,28 @@ struct SystemClock {
 template <class I2cMaster>
 class ServoboardArduino : public modm::I2cDevice<I2cMaster, 1, modm::I2cWriteTransaction> {
 public:
-    ServoboardArduino(uint8_t address = 0x8);
-
-    bool set_led_pattern(uint8_t id, uint8_t pattern);
-};
-
-template <typename I2cMaster>
-ServoboardArduino<I2cMaster>::ServoboardArduino(uint8_t address)
-    : modm::I2cDevice<I2cMaster, 1, modm::I2cWriteTransaction>(address)
-{
-}
-
-template <typename I2cMaster>
-bool ServoboardArduino<I2cMaster>::set_led_pattern(uint8_t id, uint8_t pattern)
-{
-    if (id > 3) {
-        return false;
+    ServoboardArduino(uint8_t address = 0x8) : modm::I2cDevice<I2cMaster, 1, modm::I2cWriteTransaction>(address) {
+        reset_all_leds();
     }
-    uint8_t buffer[2];
-    buffer[0] = id;
-    buffer[1] = pattern;
-    this->transaction.configureWrite(buffer, 2);
-    return this->runTransaction();
-}
+
+    void reset_all_leds() {
+        set_led_pattern(0, 0);
+        set_led_pattern(1, 0);
+        set_led_pattern(2, 0);
+        set_led_pattern(3, 0);
+    }
+
+    bool set_led_pattern(uint8_t id, uint8_t pattern) {
+        if (id > 3) {
+            return false;
+        }
+        uint8_t buffer[2];
+        buffer[0] = id;
+        buffer[1] = pattern;
+        this->transaction.configureWrite(buffer, 2);
+        return this->runTransaction();
+    }
+};
 
 int main()
 {
@@ -119,7 +118,7 @@ int main()
     power2_oe::reset();
     power3_oe::reset();
 
-    Adc1::initialize(Adc1::ClockMode::SynchronousPrescaler4, Adc1::ClockSource::SystemClock, Adc1::Prescaler::Disabled, Adc1::CalibrationMode::SingleEndedInputsMode, true);
+    //Adc1::initialize(Adc1::ClockMode::SynchronousPrescaler1, Adc1::ClockSource::SystemClock, Adc1::Prescaler::Disabled, Adc1::CalibrationMode::SingleEndedInputsMode, true);
 
     I2cMaster3::connect<GpioB4::Sda, GpioA7::Scl>();
     I2cMaster3::initialize<SystemClock, 400_kHz>();
@@ -136,16 +135,17 @@ int main()
     Can1::connect<GpioA11::Rx, GpioA12::Tx>(Gpio::InputType::PullUp);
     Can1::initialize<SystemClock, 1_Mbps>(9);
     // filter 0x100 to 0x1FF
-    CanFilter::setFilter(0, CanFilter::FIFO0, CanFilter::ExtendedIdentifier(0x100), CanFilter::ExtendedFilterMask(0x700));
+    CanFilter::setFilter(0, CanFilter::FIFO0, CanFilter::StandardIdentifier(0x100), CanFilter::StandardFilterMask(0x700));
 
     MODM_LOG_INFO << "starting servoboard date:" << __DATE__ << " time:" __TIME__ << modm::endl;
+    MODM_LOG_INFO.flush();
 
     modm::PeriodicTimer blinker { 50ms };
 
     bool first_can_alive = true;
     modm::PeriodicTimer can_alive_timer { 1s };
 
-    modm::PeriodicTimer power_current_measuer_timer { 50ms };
+    modm::PeriodicTimer power_current_measuer_timer { 1s };
 
     while (true) {
         if (blinker.execute()) {
@@ -154,6 +154,7 @@ int main()
 
         if (can_alive_timer.execute()) {
             modm::can::Message alive(CANID_SERVO_ALIVE, 1);
+            alive.setExtended(false);
             alive.data[0] = first_can_alive;
             Can1::sendMessage(alive);
 
@@ -161,35 +162,42 @@ int main()
         }
 
         if (power_current_measuer_timer.execute()) {
-            Adc1::connect<power1_adc_chan>();
-            Adc1::setPinChannel<power1_adc>(Adc1::SampleTime::Cycles13);
-            Adc1::startConversion();
-            while (!Adc1::isConversionFinished()) { }
-            uint16_t adc1 = Adc1::getValue();
+            // Adc1::connect<power1_adc_chan>();
+            // Adc1::setPinChannel<power1_adc>(Adc1::SampleTime::Cycles13);
+            // Adc1::startConversion();
+            // while (!Adc1::isConversionFinished()) { }
+            // uint16_t adc1 = Adc1::getValue();
 
-            Adc1::connect<power2_adc_chan>();
-            Adc1::setPinChannel<power2_adc>(Adc1::SampleTime::Cycles13);
-            Adc1::startConversion();
-            while (!Adc1::isConversionFinished()) { }
-            uint16_t adc2 = Adc1::getValue();
+            // Adc1::connect<power2_adc_chan>();
+            // Adc1::setPinChannel<power2_adc>(Adc1::SampleTime::Cycles13);
+            // Adc1::startConversion();
+            // while (!Adc1::isConversionFinished()) { }
+            // uint16_t adc2 = Adc1::getValue();
 
-            Adc1::connect<power3_adc_chan>();
-            Adc1::setPinChannel<power3_adc>(Adc1::SampleTime::Cycles13);
-            Adc1::startConversion();
-            while (!Adc1::isConversionFinished()) { }
-            uint16_t adc3 = Adc1::getValue();
+            // Adc1::connect<power3_adc_chan>();
+            // Adc1::setPinChannel<power3_adc>(Adc1::SampleTime::Cycles13);
+            // Adc1::startConversion();
+            // while (!Adc1::isConversionFinished()) { }
+            // uint16_t adc3 = Adc1::getValue();
 
-            modm::can::Message msg(CANID_SERVO_STATUS, 7);
-            msg.data[0] = adc1 << 8 & 0xFF;
-            msg.data[1] = adc1 & 0xFF;
-            msg.data[2] = adc2 << 8 & 0xFF;
-            msg.data[3] = adc2 & 0xFF;
-            msg.data[4] = adc3 << 8 & 0xFF;
-            msg.data[5] = adc3 & 0xFF;
-            msg.data[6] = power1_oe::read() | power2_oe::read() << 1 | power3_oe::read() << 2;
+            // uint8_t adc1 = 0;
+            // uint8_t adc2 = 0;
+            // uint8_t adc3 = 0;
+
+            // uint8_t power = power1_oe::read() | power2_oe::read() << 1 | power3_oe::read() << 2;
+
+            modm::can::Message msg(CANID_SERVO_STATUS, 0);
+            msg.setExtended(false);
+            // msg.data[0] = adc1 << 8 & 0xFF;
+            // msg.data[1] = adc1 & 0xFF;
+            // msg.data[2] = adc2 << 8 & 0xFF;
+            // msg.data[3] = adc2 & 0xFF;
+            // msg.data[4] = adc3 << 8 & 0xFF;
+            // msg.data[5] = adc3 & 0xFF;
+            // msg.data[6] = power;
             Can1::sendMessage(msg);
 
-            MODM_LOG_INFO.printf("adc1: %d %d %d\n", adc1, adc2, adc3);
+            // MODM_LOG_INFO.printf("adc1: %d %d %d\n", adc1, adc2, adc3);
         }
 
         if (!Can1::isMessageAvailable()) {
@@ -197,14 +205,13 @@ int main()
         }
 
         modm::can::Message message;
-        uint8_t filter_id;
-        Can1::getMessage(message, &filter_id);
+        Can1::getMessage(message);
 
         if (message.identifier == CANID_SERVO_REBOOT && message.length == 0) {
             NVIC_SystemReset();
         }
 
-        if (message.identifier == CANID_SERVO_ENABLE_POWER && message.length == 3) {
+        else if (message.identifier == CANID_SERVO_ENABLE_POWER && message.length == 3) {
             bool power1 = message.data[0];
             bool power2 = message.data[1];
             bool power3 = message.data[2];
@@ -212,6 +219,9 @@ int main()
             power1_oe::set(power1);
             power2_oe::set(power2);
             power3_oe::set(power3);
+
+            MODM_LOG_INFO << "ENABLE_POWER power1:" << power1 << " power2:" << power2 << " power3:" << power3 << modm::endl;
+            MODM_LOG_INFO.flush();
         }
 
         else if (message.identifier == CANID_SERVO_WRITE_US && message.length == 3) {

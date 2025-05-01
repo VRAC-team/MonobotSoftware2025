@@ -1,48 +1,21 @@
-import utils
+import can_utils as can_utils
+import can_test_utils as can_test_utils
 from canids import CANIDS
-import threading
 import time
-import can
-import struct
-import queue
 import unittest
 import colorama
-import random
+from boards.ioboard import IOBoard
 from colorama import Fore, Style
 
-class IOBoard:
-    def reboot():
-        msg = can.Message(arbitration_id=CANIDS.CANID_IO_REBOOT)
-        bus.send(msg)
-
-    def enable(state: bool):
-        msg = can.Message(arbitration_id=CANIDS.CANID_IO_STEPPER_ENABLE, data=[state])
-        bus.send(msg)
-
-
-    def home(stepper_id: int, max_relative_steps_before_error: int, tor_id: int, tor_state_to_end_homing: bool):
-        data = bytearray(
-            stepper_id.to_bytes(1) +
-            max_relative_steps_before_error.to_bytes(2, signed=True) +
-            tor_id.to_bytes(1) +
-            tor_state_to_end_homing.to_bytes(1)
-        )
-        msg = can.Message(arbitration_id=CANIDS.CANID_IO_STEPPER_HOME, data=data)
-        bus.send(msg)
-
-    def goto_abs(stepper_id: int, absolute_steps: int, acceleleration: int, max_velocity: int):
-        data = bytearray(
-            stepper_id.to_bytes(1) +
-            absolute_steps.to_bytes(2, signed=True) +
-            acceleleration.to_bytes(3) +
-            max_velocity.to_bytes(2)
-        )
-        print(f"IOBoard.goto_abs absolute_steps={absolute_steps}")
-        msg = can.Message(arbitration_id=CANIDS.CANID_IO_STEPPER_GOTO, data=data)
-        bus.send(msg)
-
 colorama.init(autoreset=True)
-bus = utils.get_can_interface()
+bus = can_utils.get_can_interface()
+# filters IDs from 0x200 to 0x2FF
+bus.set_filters([{
+    "can_id": 0x200,
+    "can_mask": 0x700,
+    "extended": False
+}])
+ioboard = IOBoard(bus)
 
 STEPS_PER_REV = 200 * 8
 ACCEL = STEPS_PER_REV * 50
@@ -51,107 +24,24 @@ STEPPER_ID = 4
 TOR_ID = 15
 TOR_STATE_TO_END_HOMING = False
 
-class VerboseTestResult(unittest.TextTestResult):
-    def startTest(self, test):
-        self._start_time = time.time()
-        test_name = self.getDescription(test)
-        print(f"\nStarting {test_name} ... ")
-
-    def addSuccess(self, test):
-        elapsed = time.time() - self._start_time
-        print(f"{Fore.GREEN}PASSED{Style.RESET_ALL} in {elapsed:.2f}s")
-        super().addSuccess(test)
-
-    def addFailure(self, test, err):
-        elapsed = time.time() - self._start_time
-        print(f"{Fore.RED}FAILED{Style.RESET_ALL} in {elapsed:.2f}s")
-        super().addFailure(test, err)
-
-    def addError(self, test, err):
-        elapsed = time.time() - self._start_time
-        print(f"{Fore.MAGENTA}ERROR{Style.RESET_ALL} in {elapsed:.2f}s")
-        super().addError(test, err)
-
-class CustomRunner(unittest.TextTestRunner):
-    def __init__(self, **kwargs):
-        super().__init__(resultclass=VerboseTestResult, **kwargs)
-
-class IOBoardTests(unittest.TestCase):
-    can_thread = None
-    can_thread_running = False
-    can_messages = queue.Queue()
+class IOBoardTests(can_test_utils.CanBusTestCase):
+    silent_can_ids = {
+        CANIDS.CANID_IO_STATUS,
+        CANIDS.CANID_IO_ALIVE
+    }
 
     @classmethod
     def setUpClass(cls):
-        cls.can_thread_running = True
-        cls.can_thread = threading.Thread(target=cls._can_read_loop, daemon=True)
-        cls.can_thread.start()
-
-    @classmethod
-    def tearDownClass(cls):
-        cls.can_thread_running = False
-        cls.can_thread.join(timeout=2)
-
-    @classmethod
-    def _can_read_loop(cls):
-        try:
-            while cls.can_thread_running:
-                for msg in bus:
-                    if msg.is_error_frame:
-                        print("CAN ERROR >", msg)
-
-                    elif msg.arbitration_id == CANIDS.CANID_IO_STATUS:
-                        tors, = struct.unpack(">H", msg.data)
-                        # print(f"status: {tors:016b}")
-                    
-                    elif msg.arbitration_id == CANIDS.CANID_IO_ALIVE:
-                        just_rebooted, = struct.unpack(">?", msg.data)
-                        # print(f"alive: just_rebooted:{just_rebooted}")
-
-                    else:
-                        frame_name = CANIDS.get_name(msg.arbitration_id)
-                        print("CAN > ", frame_name, " : ", msg)
-
-                    cls.can_messages.put(msg)
-        except can.exceptions.CanOperationError as e:
-            print(e)
-
-    def assertCanIdReceived(
-        self,
-        expected_can_id: list[int],
-        expected_can_data: bytes | list[int] | None = None,
-        timeout: float = 30
-    ) -> bool:
-        deadline = time.time() + timeout
-
-        while time.time() < deadline:
-            if not self.can_messages.empty():
-                msg = self.can_messages.get(timeout=timeout)
-
-                if msg.arbitration_id in expected_can_id:
-                    if expected_can_data is not None:
-                        data = bytes(expected_can_data) if isinstance(expected_can_data, list) else expected_can_data
-                        if msg.data != data:
-                            continue
-                    return True
-        
-        self.fail(f"CAN ID {expected_can_id} was not received within {timeout} seconds.")
-
-    def run(self, result=None):
-        super_result = super().run(result)
-        time.sleep(0.2)
-        # flush previous can messages
-        while not self.can_messages.empty():
-            self.can_messages.get()
-        return super_result
+        cls.bus = bus
+        super().setUpClass()
 
     def return_to_zero(self):
-        IOBoard.goto_abs(STEPPER_ID, 0, ACCEL, MAX_VEL)
+        ioboard.goto_abs(STEPPER_ID, 0, ACCEL, MAX_VEL)
         self.assertCanIdReceived([CANIDS.CANID_IO_STEPPER_GOTO_STARTING])
         self.assertCanIdReceived([CANIDS.CANID_IO_STEPPER_GOTO_FINISHED])
 
     def test_00_reboot(self):
-        IOBoard.reboot()
+        ioboard.reboot()
         self.assertCanIdReceived([CANIDS.CANID_IO_ALIVE], [True], timeout=2)
         self.assertCanIdReceived([CANIDS.CANID_IO_ALIVE], [False], timeout=2)
     
@@ -164,16 +54,16 @@ class IOBoardTests(unittest.TestCase):
             self.assertCanIdReceived([CANIDS.CANID_IO_STATUS], timeout=1)
 
     def test_03_disable(self):
-        IOBoard.enable(False)
+        ioboard.enable(False)
 
     def test_04_enable(self):
-        IOBoard.enable(True)
+        ioboard.enable(True)
 
     def test_05_goto(self):
         self.return_to_zero()
 
         for dir in [1, -1]:
-            IOBoard.goto_abs(STEPPER_ID, STEPS_PER_REV*4 * dir, ACCEL, MAX_VEL)
+            ioboard.goto_abs(STEPPER_ID, STEPS_PER_REV*4 * dir, ACCEL, MAX_VEL)
             self.assertCanIdReceived([CANIDS.CANID_IO_STEPPER_GOTO_STARTING])
             self.assertCanIdReceived([CANIDS.CANID_IO_STEPPER_GOTO_FINISHED])
 
@@ -181,13 +71,13 @@ class IOBoardTests(unittest.TestCase):
         self.return_to_zero()
 
         for pos in [STEPS_PER_REV*4, 0, -STEPS_PER_REV*4]:
-            IOBoard.goto_abs(STEPPER_ID, pos, ACCEL, MAX_VEL)
+            ioboard.goto_abs(STEPPER_ID, pos, ACCEL, MAX_VEL)
             self.assertCanIdReceived([CANIDS.CANID_IO_STEPPER_GOTO_STARTING])
             self.assertCanIdReceived([CANIDS.CANID_IO_STEPPER_GOTO_FINISHED], timeout=5)
 
             # these same position must finish immediately as the position has not changed
             for i in range(5):
-                IOBoard.goto_abs(STEPPER_ID, pos, ACCEL, MAX_VEL)
+                ioboard.goto_abs(STEPPER_ID, pos, ACCEL, MAX_VEL)
                 self.assertCanIdReceived([CANIDS.CANID_IO_STEPPER_GOTO_STARTING])
                 self.assertCanIdReceived([CANIDS.CANID_IO_STEPPER_GOTO_FINISHED], timeout=0.1)
 
@@ -201,7 +91,7 @@ class IOBoardTests(unittest.TestCase):
             pos *= dir
             print("pos:", pos)
 
-            IOBoard.goto_abs(STEPPER_ID, pos, STEPS_PER_REV*60, STEPS_PER_REV//30)
+            ioboard.goto_abs(STEPPER_ID, pos, STEPS_PER_REV*60, STEPS_PER_REV//30)
             self.assertCanIdReceived([CANIDS.CANID_IO_STEPPER_GOTO_STARTING])
             self.assertCanIdReceived([CANIDS.CANID_IO_STEPPER_GOTO_FINISHED])
 
@@ -212,7 +102,7 @@ class IOBoardTests(unittest.TestCase):
 
             for i in range(8):
                 pos += (STEPS_PER_REV//8) * dir
-                IOBoard.goto_abs(STEPPER_ID, pos, ACCEL//2, MAX_VEL)
+                ioboard.goto_abs(STEPPER_ID, pos, ACCEL//2, MAX_VEL)
                 self.assertCanIdReceived([CANIDS.CANID_IO_STEPPER_GOTO_STARTING])
                 self.assertCanIdReceived([CANIDS.CANID_IO_STEPPER_GOTO_FINISHED])
 
@@ -221,14 +111,14 @@ class IOBoardTests(unittest.TestCase):
         for i in range(15):
             pos = STEPS_PER_REV//15
             pos = pos if i % 2 == 0 else -pos
-            IOBoard.goto_abs(STEPPER_ID, pos, ACCEL, MAX_VEL)
+            ioboard.goto_abs(STEPPER_ID, pos, ACCEL, MAX_VEL)
             self.assertCanIdReceived([CANIDS.CANID_IO_STEPPER_GOTO_STARTING])
             self.assertCanIdReceived([CANIDS.CANID_IO_STEPPER_GOTO_FINISHED])
 
     def test_09_home_failed(self):
         # home 1 turns
         for dir in [1, -1]:
-            IOBoard.home(STEPPER_ID, STEPS_PER_REV * dir, TOR_ID, TOR_STATE_TO_END_HOMING)
+            ioboard.home(STEPPER_ID, STEPS_PER_REV * dir, TOR_ID, TOR_STATE_TO_END_HOMING)
             self.assertCanIdReceived([CANIDS.CANID_IO_STEPPER_HOME_STARTING])
             self.assertCanIdReceived([CANIDS.CANID_IO_STEPPER_HOME_FAILED])
             time.sleep(0.3)
@@ -241,26 +131,26 @@ class IOBoardTests(unittest.TestCase):
             time.sleep(1)
 
         for dir in [1, -1]:
-            IOBoard.home(STEPPER_ID, (STEPS_PER_REV*20) * dir, TOR_ID, TOR_STATE_TO_END_HOMING)
+            ioboard.home(STEPPER_ID, (STEPS_PER_REV*20) * dir, TOR_ID, TOR_STATE_TO_END_HOMING)
             self.assertCanIdReceived([CANIDS.CANID_IO_STEPPER_HOME_STARTING])
             self.assertCanIdReceived([CANIDS.CANID_IO_STEPPER_HOME_SUCCEEDED])
             time.sleep(0.3)
 
     def test_11_home_at_first_step(self):
         # home at first step (inverting tor state to end homing at first step)
-        IOBoard.home(STEPPER_ID, STEPS_PER_REV*3, TOR_ID, not TOR_STATE_TO_END_HOMING)
+        ioboard.home(STEPPER_ID, STEPS_PER_REV*3, TOR_ID, not TOR_STATE_TO_END_HOMING)
         self.assertCanIdReceived([CANIDS.CANID_IO_STEPPER_HOME_STARTING])
         self.assertCanIdReceived([CANIDS.CANID_IO_STEPPER_HOME_SUCCEEDED])
         time.sleep(0.3)
 
         # home at first step (zero steps)
-        IOBoard.home(STEPPER_ID, 0, TOR_ID, TOR_STATE_TO_END_HOMING)
+        ioboard.home(STEPPER_ID, 0, TOR_ID, TOR_STATE_TO_END_HOMING)
         self.assertCanIdReceived([CANIDS.CANID_IO_STEPPER_HOME_STARTING])
         self.assertCanIdReceived([CANIDS.CANID_IO_STEPPER_HOME_SUCCEEDED])
         time.sleep(0.3)
 
         # home at first step (zero steps and inverting tor state to end homing at first step)
-        IOBoard.home(STEPPER_ID, 0, TOR_ID, not TOR_STATE_TO_END_HOMING)
+        ioboard.home(STEPPER_ID, 0, TOR_ID, not TOR_STATE_TO_END_HOMING)
         self.assertCanIdReceived([CANIDS.CANID_IO_STEPPER_HOME_STARTING])
         self.assertCanIdReceived([CANIDS.CANID_IO_STEPPER_HOME_SUCCEEDED])
         time.sleep(0.3)
@@ -269,10 +159,10 @@ class IOBoardTests(unittest.TestCase):
         for dir in [1, -1]:
             self.return_to_zero()
 
-            IOBoard.goto_abs(STEPPER_ID, (STEPS_PER_REV*2) * dir, ACCEL, MAX_VEL//5)
+            ioboard.goto_abs(STEPPER_ID, (STEPS_PER_REV*2) * dir, ACCEL, MAX_VEL//5)
             self.assertCanIdReceived([CANIDS.CANID_IO_STEPPER_GOTO_STARTING])
             time.sleep(0.5)
-            IOBoard.goto_abs(STEPPER_ID, STEPS_PER_REV*2 * dir * -1, ACCEL, MAX_VEL//5)
+            ioboard.goto_abs(STEPPER_ID, STEPS_PER_REV*2 * dir * -1, ACCEL, MAX_VEL//5)
             self.assertCanIdReceived([CANIDS.CANID_IO_STEPPER_ERROR_MOTION_IN_PROGRESS])
             self.assertCanIdReceived([CANIDS.CANID_IO_STEPPER_GOTO_FINISHED])            
 
@@ -280,27 +170,27 @@ class IOBoardTests(unittest.TestCase):
         for dir in [1, -1]:
             self.return_to_zero()
 
-            IOBoard.goto_abs(STEPPER_ID, (STEPS_PER_REV*2) * dir, ACCEL, MAX_VEL//5)
+            ioboard.goto_abs(STEPPER_ID, (STEPS_PER_REV*2) * dir, ACCEL, MAX_VEL//5)
             self.assertCanIdReceived([CANIDS.CANID_IO_STEPPER_GOTO_STARTING])
             time.sleep(0.5)
-            IOBoard.home(STEPPER_ID, STEPS_PER_REV*3, TOR_ID, True)
+            ioboard.home(STEPPER_ID, STEPS_PER_REV*3, TOR_ID, True)
             self.assertCanIdReceived([CANIDS.CANID_IO_STEPPER_ERROR_MOTION_IN_PROGRESS])
             self.assertCanIdReceived([CANIDS.CANID_IO_STEPPER_GOTO_FINISHED])
 
     def test_14_home_home_error_motion_in_progress(self):
         for dir in [1, -1]:
-            IOBoard.home(STEPPER_ID, (STEPS_PER_REV*3) * dir, TOR_ID, TOR_STATE_TO_END_HOMING)
+            ioboard.home(STEPPER_ID, (STEPS_PER_REV*3) * dir, TOR_ID, TOR_STATE_TO_END_HOMING)
             self.assertCanIdReceived([CANIDS.CANID_IO_STEPPER_HOME_STARTING])
-            IOBoard.home(STEPPER_ID, (STEPS_PER_REV*3) * dir, TOR_ID, TOR_STATE_TO_END_HOMING)
+            ioboard.home(STEPPER_ID, (STEPS_PER_REV*3) * dir, TOR_ID, TOR_STATE_TO_END_HOMING)
             self.assertCanIdReceived([CANIDS.CANID_IO_STEPPER_ERROR_MOTION_IN_PROGRESS])
             self.assertCanIdReceived([CANIDS.CANID_IO_STEPPER_HOME_SUCCEEDED, CANIDS.CANID_IO_STEPPER_HOME_FAILED])
             time.sleep(0.3)
 
     def test_15_home_goto_error_motion_in_progress(self):
         for dir in [1, -1]:
-            IOBoard.home(STEPPER_ID, (STEPS_PER_REV*3) * dir, TOR_ID, TOR_STATE_TO_END_HOMING)
+            ioboard.home(STEPPER_ID, (STEPS_PER_REV*3) * dir, TOR_ID, TOR_STATE_TO_END_HOMING)
             self.assertCanIdReceived([CANIDS.CANID_IO_STEPPER_HOME_STARTING])
-            IOBoard.goto_abs(STEPPER_ID, (STEPS_PER_REV*2) * dir, ACCEL, MAX_VEL//5)
+            ioboard.goto_abs(STEPPER_ID, (STEPS_PER_REV*2) * dir, ACCEL, MAX_VEL//5)
             self.assertCanIdReceived([CANIDS.CANID_IO_STEPPER_ERROR_MOTION_IN_PROGRESS])
             self.assertCanIdReceived([CANIDS.CANID_IO_STEPPER_HOME_SUCCEEDED, CANIDS.CANID_IO_STEPPER_HOME_FAILED])
             time.sleep(0.3)
@@ -308,47 +198,46 @@ class IOBoardTests(unittest.TestCase):
     def test_16_disable_goto_error_not_enabled(self):
         self.return_to_zero()
 
-        IOBoard.enable(False)
-        IOBoard.goto_abs(STEPPER_ID, STEPS_PER_REV*2, ACCEL, MAX_VEL)
+        ioboard.enable(False)
+        ioboard.goto_abs(STEPPER_ID, STEPS_PER_REV*2, ACCEL, MAX_VEL)
         self.assertCanIdReceived([CANIDS.CANID_IO_STEPPER_ERROR_NOT_ENABLED])
 
-        IOBoard.home(STEPPER_ID, STEPS_PER_REV*3, TOR_ID, TOR_STATE_TO_END_HOMING)
+        ioboard.home(STEPPER_ID, STEPS_PER_REV*3, TOR_ID, TOR_STATE_TO_END_HOMING)
         self.assertCanIdReceived([CANIDS.CANID_IO_STEPPER_ERROR_NOT_ENABLED])
 
-        IOBoard.enable(True)
+        ioboard.enable(True)
 
     def test_17_goto_disable_error_disabled_during_motion(self):
         self.return_to_zero()
 
-        IOBoard.goto_abs(STEPPER_ID, STEPS_PER_REV*2, ACCEL, MAX_VEL//3)
+        ioboard.goto_abs(STEPPER_ID, STEPS_PER_REV*2, ACCEL, MAX_VEL//3)
         self.assertCanIdReceived([CANIDS.CANID_IO_STEPPER_GOTO_STARTING])
         time.sleep(0.5)
-        IOBoard.enable(False)
+        ioboard.enable(False)
         self.assertCanIdReceived([CANIDS.CANID_IO_STEPPER_ERROR_DISABLED_DURING_MOTION])
 
-        IOBoard.enable(True)
+        ioboard.enable(True)
 
     def test_18_home_disable_error_disabled_during_motion(self):
         self.return_to_zero()
 
-        IOBoard.home(STEPPER_ID, STEPS_PER_REV*3, TOR_ID, TOR_STATE_TO_END_HOMING)
+        ioboard.home(STEPPER_ID, STEPS_PER_REV*3, TOR_ID, TOR_STATE_TO_END_HOMING)
         self.assertCanIdReceived([CANIDS.CANID_IO_STEPPER_HOME_STARTING])
         time.sleep(0.5)
-        IOBoard.enable(False)
+        ioboard.enable(False)
         self.assertCanIdReceived([CANIDS.CANID_IO_STEPPER_ERROR_DISABLED_DURING_MOTION])
 
-        IOBoard.enable(True)
+        ioboard.enable(True)
 
     def test_19_goto_invalid_args(self):
-        IOBoard.goto_abs(STEPPER_ID, STEPS_PER_REV*3, 0, MAX_VEL)
+        ioboard.goto_abs(STEPPER_ID, STEPS_PER_REV*3, 0, MAX_VEL)
         self.assertCanIdReceived([CANIDS.CANID_IO_STEPPER_ERROR_INVALID_PARAMS])
 
-        IOBoard.goto_abs(STEPPER_ID, STEPS_PER_REV*3, ACCEL, 0)
+        ioboard.goto_abs(STEPPER_ID, STEPS_PER_REV*3, ACCEL, 0)
         self.assertCanIdReceived([CANIDS.CANID_IO_STEPPER_ERROR_INVALID_PARAMS])
 
 if __name__ == '__main__':
-    suite = unittest.defaultTestLoader.loadTestsFromTestCase(IOBoardTests)
-    runner = CustomRunner(verbosity=0)
+    suite = unittest.TestLoader().loadTestsFromTestCase(IOBoardTests)
+    runner = can_test_utils.CustomRunner(verbosity=2)
     runner.run(suite)
-
     bus.shutdown()

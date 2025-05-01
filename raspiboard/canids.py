@@ -1,4 +1,4 @@
-# Auto-generated on 2025-05-01 17:25:03
+# Auto-generated on 2025-05-01 18:53:21
 
 class CANIDS:
     CANID_MOTOR_REBOOT = 0x00

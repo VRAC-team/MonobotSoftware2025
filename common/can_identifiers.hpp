@@ -34,18 +34,26 @@
 // reboot the board
 
 #define CANID_SERVO_ENABLE_POWER 0x101
-// enable power supplies: power1 is servos[0-7], power2 is servo[8-15], power3 is leds[0-3]
-// <u8 power1_en(bool)> <u8 power2_en(bool)> <u8 power3_en(bool)>
+// enable/disable power supplies
+// power1 is servos[0-7], power2 is servo[8-15], power3 is leds[0-3]
+// <u8 power1_en(bool)>
+// <u8 power2_en(bool)>
+// <u8 power3_en(bool)>
 
 #define CANID_SERVO_WRITE_US 0x102
-// <u8 id(0-15)> <u16 microseconds(500-2500)>
+// <u8 id(0-15)>
+// <u16 microseconds(500-2500)>
 
 #define CANID_SERVO_SET_LED_PATTERN 0x103
-// <u8 id(0-3)> <u8 pattern>
+// <u8 id(0-3)>
+// <u8 pattern>
 
 #define CANID_SERVO_STATUS 0x1EE
 // sent periodically by servoboard
-// <u16 power1_adc> <u16 power2_adc> <u16 power3_adc> <u8 bit0:power1_en bit1:power2_en bit2:power3_en>
+// <u16 power1_adc>
+// <u16 power2_adc>
+// <u16 power3_adc>
+// <u8 bit0:power1_en bit1:power2_en bit2:power3_en>
 
 #define CANID_SERVO_ALIVE 0x1FF
 //sent periodically by servoboard
@@ -68,7 +76,8 @@
 // <u8 stepper_id(0-4)>
 
 #define CANID_IO_STEPPER_ERROR_INVALID_PARAMS 0x204
-// send by ioboard, when a new HOME or GOTO is received with invalid parameters (acceleration=0 or maxvelocity=0)
+// send by ioboard, when a new HOME or GOTO is received with invalid parameters
+// possible invalid parameters: acceleration=0, maxvelocity=0, stepper_id>5, tor_id>15
 
 #define CANID_IO_STEPPER_ENABLE 0x205
 // enable/disable all steppers drivers

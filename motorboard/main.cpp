@@ -138,7 +138,7 @@ int main()
     Can1::connect<GpioInputB8::Rx, GpioOutputB9::Tx>(Gpio::InputType::PullUp);
     Can1::initialize<SystemClock, 1_Mbps>(9);
     // filter 0x000 to 0x0FF
-    CanFilter::setFilter(0, CanFilter::FIFO0, CanFilter::ExtendedIdentifier(0), CanFilter::ExtendedFilterMask(0x700));
+    CanFilter::setFilter(0, CanFilter::FIFO0, CanFilter::StandardIdentifier(0), CanFilter::StandardFilterMask(0x700));
 
     uint16_t timer_overflow = Timer1::getOverflow();
     bool setpoint_error = true;
@@ -169,12 +169,14 @@ int main()
             blinker.restart(50ms);
 
             modm::can::Message msg(CANID_MOTOR_SETPOINT_ERROR, 0);
+            msg.setExtended(false);
             Can1::sendMessage(msg);
         }
 
         if (can_alive_timer.execute()) {
 
             modm::can::Message alive(CANID_MOTOR_ALIVE, 2);
+            alive.setExtended(false);
             alive.data[0] = first_can_alive;
             alive.data[1] = setpoint_error;
             Can1::sendMessage(alive);
@@ -194,7 +196,7 @@ int main()
             NVIC_SystemReset();
         }
 
-        if (message.identifier == CANID_MOTOR_SETPOINT && message.length == 4) {
+        else if (message.identifier == CANID_MOTOR_SETPOINT && message.length == 4) {
             if (setpoint_error)
                 continue;
 
@@ -242,6 +244,7 @@ int main()
             setpoint_error_timeout.restart(10ms);
 
             modm::can::Message response(CANID_MOTOR_STATUS, 6);
+            response.setExtended(false);
             response.data[0] = enc1_data_raw >> 8;
             response.data[1] = enc1_data_raw & 0xFF;
             response.data[2] = enc2_data_raw >> 8;
