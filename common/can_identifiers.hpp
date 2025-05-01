@@ -57,53 +57,67 @@
 // reboot the board
 
 #define CANID_IO_STEPPER_ERROR_DISABLED_DURING_MOTION 0x201
-// sent by ioboard, when there was a HOME or GOTO in progress but then received a power DISABLE. All motions were canceled
-// <u8 steppers_that_were_active(bitset)>
+// sent by ioboard, when there was a HOME or GOTO in progress but then received a DISABLE. All motions were canceled
+// <u8 steppers_that_were_doing_motion(bitset)>
 
 #define CANID_IO_STEPPER_ERROR_NOT_ENABLED 0x202
 // sent by ioboard, when a new HOME or GOTO is received but the steppers are not enabled
 
 #define CANID_IO_STEPPER_ERROR_MOTION_IN_PROGRESS 0x203
-// sent by ioboard, when a new HOME or GOTO is received but the stepper_id is already doin one of them
+// sent by ioboard, when a new HOME or GOTO is received but the stepper_id is already doin HOME or GOTO
 // <u8 stepper_id(0-4)>
 
-#define CANID_IO_STEPPER_ENABLE 0x204
+#define CANID_IO_STEPPER_ERROR_INVALID_PARAMS 0x204
+// send by ioboard, when a new HOME or GOTO is received with invalid parameters (acceleration=0 or maxvelocity=0)
+
+#define CANID_IO_STEPPER_ENABLE 0x205
 // enable/disable all steppers drivers
-// if there is a HOME or GOTO in progress, cancel all of them. ioboard will send a ERROR_DISABLED_DURING_MOTION
+// if disabling and there is a HOME or GOTO in progress, cancel all motions. ioboard will send a ERROR_DISABLED_DURING_MOTION
 // <u8 enable(bool)>
 
-#define CANID_IO_STEPPER_HOME 0x205
+#define CANID_IO_STEPPER_HOME 0x206
 // home a stepper
 // if the steppers are not enabled, ioboard will send a ERROR_NOT_ENABLED
 // if the stepper_id is already doin HOME or GOTO, then ioboard will send a ERROR_MOTION_IN_PROGRESS
-// if max_relative_steps_before_error is zero, ioboard will send HOME_SUCCEEDED
-// when tor_state_to_end_homing is matched, current_position is reset to 0 and ioboard will send HOME_SUCCEEDED
+// if the parameters are invalid (acceleration=0 or maxvelocity=0), then ioboard will send a ERROR_INVALID_PARAMS
+// when starting, ioboard will send HOME_STARTING
+// if max_relative_steps_before_error, ioboard will send HOME_SUCCEEDED
+// when tor_state_to_end_homing state is matched, current_position is reset to 0 and ioboard will send HOME_SUCCEEDED
 // when max_relative_steps_before_error is reached without tor state, ioboard will send HOME_FAILED
 // <u8 stepper_id(0-4)>
 // <i16 max_relative_steps_before_error>
 // <u8 tor_id(0-15)>
 // <u8 tor_state_to_end_homing(0-1)>
 
-#define CANID_IO_STEPPER_HOME_FAILED 0x206
+#define CANID_IO_STEPPER_HOME_STARTING 0x207
+// send by ioboard, when a new HOME is received and starting succesfully
+// <u8 stepper_id(0-4)>
+
+#define CANID_IO_STEPPER_HOME_FAILED 0x208
 // sent by ioboard, when HOME could not be done because max_relative_steps_before_error is reached and the tor state was not changed to the desired state
 // <u8 stepper_id(0-4)>
 
-#define CANID_IO_STEPPER_HOME_SUCCEEDED 0x207
+#define CANID_IO_STEPPER_HOME_SUCCEEDED 0x209
 // sent by ioboard, when HOME is done
 // <u8 stepper_id(0-4)>
 
-#define CANID_IO_STEPPER_GOTO 0x208
+#define CANID_IO_STEPPER_GOTO 0x20A
 // move a stepper to absolute steps
 // if the stepper_id is already doin HOME or GOTO, then ioboard will send a ERROR_MOTION_IN_PROGRESS
 // if the steppers are not enabled, ioboard will send a ERROR_NOT_ENABLED
-// if the absolute_steps is zero, ioboard will send a GOTO_FINISHED
-// if the GOTO is done, ioboard will send a GOTO_FINISHED
+// if the parameters are invalid (acceleration=0 or maxvelocity=0), then ioboard will send a ERROR_INVALID_PARAMS
+// when the motion starts, ioboard will send a GOTO_STARTING
+// when the motion is done, ioboard will send a GOTO_FINISHED
 // <u8 stepper_id(0-4)>
 // <i16 absolute_steps>
 // <u24 acceleleration>
 // <u16 max_velocity>
 
-#define CANID_IO_STEPPER_GOTO_FINISHED 0x209
+#define CANID_IO_STEPPER_GOTO_STARTING 0x20B
+// send by ioboard, when a new GOTO is received and starting succesfully
+// <u8 stepper_id(0-4)>
+
+#define CANID_IO_STEPPER_GOTO_FINISHED 0x20C
 // sent by ioboard, when GOTO has finished
 // <u8 stepper_id(0-4)>
 

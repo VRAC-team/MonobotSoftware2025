@@ -114,18 +114,31 @@ uint16_t read_tors()
     return out;
 }
 
+enum class MotionStatus : uint8_t {
+    Idle,
+    IsDoingHome,
+    IsDoingGoto,
+    FlagHomeSucceeded,
+    FlagHomeFailed,
+    FlagGotoFinished
+};
+
+enum class MotionStartResult : uint8_t {
+    Error_InvalidParams,
+    Error_AlreadyInMotion,
+    AlreadyDone, // when goto() or home() with zero steps
+    Started
+};
+
 class IAccelStepper {
 public:
     virtual ~IAccelStepper() = default;
-    virtual bool home(int32_t max_relative_steps_before_error, uint32_t acceleration, uint32_t max_velocity, uint8_t homing_tor_index, bool tor_state_to_end_homing) = 0;
-    virtual bool goto_absolute(int32_t absolute_steps, uint32_t acceleration, uint32_t max_velocity) = 0;
+    virtual MotionStartResult home(int32_t max_relative_steps_before_error, uint32_t acceleration, uint32_t max_velocity, uint8_t homing_tor_index, bool tor_state_to_end_homing) = 0;
+    virtual MotionStartResult goto_absolute(int32_t absolute_steps, uint32_t acceleration, uint32_t max_velocity) = 0;
     virtual void cancel_current_motion() = 0;
     virtual void isr_step() = 0;
-    virtual bool is_doing_goto() = 0;
-    virtual bool is_doing_home() = 0;
-    virtual bool homing_has_succeeded_flag() = 0;
-    virtual bool homing_has_failed_flag() = 0;
-    virtual bool goto_has_finished_flag() = 0;
+    virtual MotionStatus get_status() = 0;
+    virtual bool clear_status_flag() = 0;
 };
 
 template <typename Step, typename Dir, typename Timer>
@@ -136,31 +149,26 @@ public:
         Dir::setOutput();
         Step::reset();
         Dir::reset();
-        m_is_doing_home = false;
-        m_is_doing_goto = false;
-        m_flag_homing_has_succeeded = false;
-        m_flag_homing_has_failed = false;
-        m_flag_goto_has_finished = false;
+        m_status = MotionStatus::Idle;
         m_current_position = 0;
+        m_steps_remaining = 0;
     }
 
-    bool home(int32_t max_relative_steps_before_error, uint32_t acceleration, uint32_t max_velocity, uint8_t homing_tor_index, bool tor_state_to_end_homing) {
-        if (m_is_doing_goto || m_is_doing_home) {
-            return false;
+    MotionStartResult home(int32_t max_relative_steps_before_error, uint32_t acceleration, uint32_t max_velocity, uint8_t homing_tor_index, bool tor_state_to_end_homing) {
+        if (m_status != MotionStatus::Idle) {
+            return MotionStartResult::Error_AlreadyInMotion;
+        }
+
+        if (max_relative_steps_before_error == 0) {
+            // no need change m_status there, it is handled immediately
+            return MotionStartResult::AlreadyDone;
         }
 
         if (acceleration == 0 || max_velocity == 0) {
-            return false;
+            return MotionStartResult::Error_InvalidParams;
         }
 
         uint32_t total_steps = abs(max_relative_steps_before_error);
-
-        if (total_steps == 0) {
-            m_flag_homing_has_succeeded = true;
-            m_flag_homing_has_failed = false;
-            m_flag_goto_has_finished = false;
-            return false;
-        }
 
         if (max_relative_steps_before_error > 0) {
             Dir::set();
@@ -172,10 +180,6 @@ public:
 
         m_homing_tor_index = homing_tor_index;
         m_homing_tor_state_to_end = tor_state_to_end_homing;
-
-        m_flag_homing_has_succeeded = false;
-        m_flag_homing_has_failed = false;
-        m_flag_goto_has_finished = false;
 
         m_steps_remaining = total_steps;
         m_acceleration = acceleration;
@@ -204,43 +208,38 @@ public:
         Timer::enableInterruptVector(true, 1);
         Timer::template setPeriod<SystemClock>(std::chrono::microseconds(m_current_step_period_us));
     
-        m_is_doing_home = true;
+        m_status = MotionStatus::IsDoingHome;
     
         Timer::applyAndReset();
         Timer::start();
     
-        return true;
+        return MotionStartResult::Started;
     }
 
-    bool goto_absolute(int32_t absolute_steps, uint32_t acceleration, uint32_t max_velocity) {
-        if (m_is_doing_goto || m_is_doing_home) {
-            return false;
+    MotionStartResult goto_absolute(int32_t absolute_steps, uint32_t acceleration, uint32_t max_velocity) {
+        if (m_status != MotionStatus::Idle) {
+            return MotionStartResult::Error_AlreadyInMotion;
         }
 
         if (acceleration == 0 || max_velocity == 0) {
-            return false;
+            return MotionStartResult::Error_InvalidParams;
         }
 
-        uint32_t total_steps = abs(absolute_steps - m_current_position);
+        int32_t delta = absolute_steps - m_current_position;
+        uint32_t total_steps = abs(delta);
 
         if (total_steps == 0) {
-            m_flag_homing_has_succeeded = false;
-            m_flag_homing_has_failed = false;
-            m_flag_goto_has_finished = true;
-            return false;
+            // no need change m_status there, it is handled immediately
+            return MotionStartResult::AlreadyDone;
         }
     
-        if (absolute_steps > 0) {
+        if (delta > 0) {
             Dir::set();
             m_direction = 1;
         } else {
             Dir::reset();
             m_direction = -1;
         }
-        
-        m_flag_homing_has_succeeded = false;
-        m_flag_homing_has_failed = false;
-        m_flag_goto_has_finished = false;
 
         m_steps_remaining = total_steps;
         m_acceleration = acceleration;
@@ -255,20 +254,11 @@ public:
         
         // if the profile is a triangle, recalculate steps
         if (2.0f * m_accel_steps > total_steps) {
-            MODM_LOG_INFO << "---Triangle profile" << modm::endl;
             m_max_velocity = sqrtf(m_acceleration * total_steps);
             m_accel_steps = total_steps / 2;
             m_decel_steps = total_steps - m_accel_steps;
             m_const_steps = 0;
         }
-
-        MODM_LOG_INFO << "== goto_absolute ==" << modm::endl;
-        MODM_LOG_INFO << "m_steps_remaining=" << m_steps_remaining << modm::endl;
-        MODM_LOG_INFO << "m_accel_steps=" << m_accel_steps << modm::endl;
-        MODM_LOG_INFO << "m_const_steps=" << m_const_steps << modm::endl;
-        MODM_LOG_INFO << "m_decel_steps=" << m_decel_steps << modm::endl;
-        MODM_LOG_INFO << modm::endl;
-        MODM_LOG_INFO.flush();
     
         // precompute as much as we can, to shorten isr_step() execution time
         m_acceleration /= 1000000.0f; //convert motor accel to steps/microseconds^2
@@ -282,38 +272,29 @@ public:
         Timer::enableInterruptVector(true, 1);
         Timer::template setPeriod<SystemClock>(std::chrono::microseconds(m_current_step_period_us));
 
-        m_is_doing_goto = true;
+        m_status = MotionStatus::IsDoingGoto;
     
         Timer::applyAndReset();
         Timer::start();
     
-        return true;
+        return MotionStartResult::Started;
     }
 
     void cancel_current_motion() {
         modm::atomic::Lock lock;
-
         Timer::pause();
-
-        m_is_doing_goto = false;
-        m_is_doing_home = false;
-
-        m_flag_homing_has_succeeded = false;
-        m_flag_homing_has_failed = false;
-        m_flag_goto_has_finished = false;
-
+        m_status = MotionStatus::Idle;
         m_steps_remaining = 0;
     }
 
     void isr_step() {
-        if (m_is_doing_home) {
+        if (m_status == MotionStatus::IsDoingHome) {
             // uint16_t tors = read_tors(); // I measured 8527ns for this line, good enough i guess
             bool tor_state = (read_tors() >> m_homing_tor_index) & 1;
             if (m_homing_tor_state_to_end == tor_state) {
                 m_current_position = 0;
                 m_steps_remaining = 0;
-                m_is_doing_home = false;
-                m_flag_homing_has_succeeded = true;
+                m_status = MotionStatus::FlagHomeSucceeded;
                 return;
             }
         }
@@ -328,15 +309,13 @@ public:
         Step::reset();
     
         if (m_steps_remaining == 0) {
-            if (m_is_doing_goto) {
-                m_is_doing_goto = false;
-                m_flag_goto_has_finished = true;
+            if (m_status == MotionStatus::IsDoingGoto) {
+                m_status = MotionStatus::FlagGotoFinished;
                 return;
             }
             
-            if (m_is_doing_home) {
-                m_is_doing_home = false;
-                m_flag_homing_has_failed = true;
+            if (m_status == MotionStatus::IsDoingHome) {
+                m_status = MotionStatus::FlagHomeFailed;
                 return;
             }
         }
@@ -344,10 +323,18 @@ public:
         if (m_steps_remaining <= m_remaining_steps_decel_phase) {
             m_current_velocity -= m_acceleration * m_current_step_period_us;
             if (m_current_velocity <= 0) {
-                m_steps_remaining = 0;
-                m_is_doing_goto = false;
-                m_flag_goto_has_finished = true;
-                return;
+                // i'm unsure this case can be possible, but just in case let's handle this correctly
+                if (m_status == MotionStatus::IsDoingGoto) {
+                    m_status = MotionStatus::FlagGotoFinished;
+                    m_steps_remaining = 0;
+                    return;
+                }
+                
+                if (m_status == MotionStatus::IsDoingHome) {
+                    m_status = MotionStatus::FlagHomeFailed;
+                    m_steps_remaining = 0;
+                    return;
+                }
             }
         }
         else if (m_steps_remaining <= m_remaining_steps_const_phase) {
@@ -368,43 +355,30 @@ public:
     }
 
     bool is_doing_goto() {
-        return m_is_doing_goto;
+        return m_status == MotionStatus::IsDoingGoto;
     }
 
     bool is_doing_home() {
-        return m_is_doing_home;
+        return m_status == MotionStatus::IsDoingHome;
     }
     
-    bool homing_has_succeeded_flag() {
-        if (m_flag_homing_has_succeeded) {
-            m_flag_homing_has_succeeded = false;
-            return true;
-        }
-        return false;
+    MotionStatus get_status() {
+        return m_status;
     }
 
-    bool homing_has_failed_flag() {
-        if (m_flag_homing_has_failed) {
-            m_flag_homing_has_failed = false;
-            return true;
+    bool clear_status_flag() {
+        switch (m_status) {
+            case MotionStatus::FlagGotoFinished:
+            case MotionStatus::FlagHomeSucceeded:
+            case MotionStatus::FlagHomeFailed:
+                m_status = MotionStatus::Idle;
+                return true;
+            default:
+                return false;
         }
-        return false;
-    }
-
-    bool goto_has_finished_flag() {
-        if (m_flag_goto_has_finished) {
-            m_flag_goto_has_finished = false;
-            return true;
-        }
-        return false;
     }
 private:
-    volatile bool m_is_doing_goto;
-    volatile bool m_is_doing_home;
-
-    volatile bool m_flag_homing_has_succeeded;
-    volatile bool m_flag_homing_has_failed;
-    volatile bool m_flag_goto_has_finished;
+    volatile MotionStatus m_status;
 
     uint8_t m_homing_tor_index;
     bool m_homing_tor_state_to_end;
@@ -503,7 +477,8 @@ void handle_can_messages() {
 
         uint8_t steppers_that_were_active = 0;
         for (uint8_t stepper_id = 0 ; stepper_id < 5 ; ++stepper_id) {
-            if (steppers[stepper_id]->is_doing_goto() || steppers[stepper_id]->is_doing_home()) {
+            MotionStatus status = steppers[stepper_id]->get_status();
+            if (status == MotionStatus::IsDoingHome || status == MotionStatus::IsDoingGoto) {
                 steppers[stepper_id]->cancel_current_motion();
                 steppers_that_were_active |= 1 << stepper_id;
             }
@@ -535,16 +510,33 @@ void handle_can_messages() {
             return;
         }
 
-        if (steppers[stepper_id]->is_doing_home() || steppers[stepper_id]->is_doing_goto()) {
+        // TODO make these configurable ? They doesn't fit in standard 8 bytes can frame
+        const uint16_t homing_acceleration = 200*8*40;
+        const uint16_t homing_max_velocity = 200*8*2;
+        
+        MotionStartResult res = steppers[stepper_id]->home(max_relative_steps_before_error, homing_acceleration, homing_max_velocity, tor_id, tor_state_to_end_homing);
+
+        if (res == MotionStartResult::Error_InvalidParams) {
+            modm::can::Message err(CANID_IO_STEPPER_ERROR_INVALID_PARAMS, 1);
+            err.data[0] = stepper_id;
+            Can1::sendMessage(err);
+        } else if (res == MotionStartResult::Error_AlreadyInMotion) {
             modm::can::Message err(CANID_IO_STEPPER_ERROR_MOTION_IN_PROGRESS, 1);
             err.data[0] = stepper_id;
             Can1::sendMessage(err);
-            return;
-        }
+        } else if (res == MotionStartResult::AlreadyDone) {
+            modm::can::Message starting(CANID_IO_STEPPER_HOME_STARTING, 1);
+            starting.data[0] = stepper_id;
+            Can1::sendMessage(starting);
 
-        const uint16_t homing_acceleration = 200*8*40;
-        const uint16_t homing_max_velocity = 200*8*2;
-        steppers[stepper_id]->home(max_relative_steps_before_error, homing_acceleration, homing_max_velocity, tor_id, tor_state_to_end_homing);
+            modm::can::Message succeeded(CANID_IO_STEPPER_HOME_SUCCEEDED, 1);
+            succeeded.data[0] = stepper_id;
+            Can1::sendMessage(succeeded);
+        } else if (res == MotionStartResult::Started) {
+            modm::can::Message starting(CANID_IO_STEPPER_HOME_STARTING, 1);
+            starting.data[0] = stepper_id;
+            Can1::sendMessage(starting);
+        }
     }
 
     else if (message.identifier == CANID_IO_STEPPER_GOTO && message.length == 8) {
@@ -563,14 +555,29 @@ void handle_can_messages() {
             return;
         }
 
-        if (steppers[stepper_id]->is_doing_home() || steppers[stepper_id]->is_doing_goto()) {
+        MotionStartResult res = steppers[stepper_id]->goto_absolute(absolute_steps, acceleleration, max_velocity);
+
+        if (res == MotionStartResult::Error_InvalidParams) {
+            modm::can::Message err(CANID_IO_STEPPER_ERROR_INVALID_PARAMS, 1);
+            err.data[0] = stepper_id;
+            Can1::sendMessage(err);
+        } else if (res == MotionStartResult::Error_AlreadyInMotion) {
             modm::can::Message err(CANID_IO_STEPPER_ERROR_MOTION_IN_PROGRESS, 1);
             err.data[0] = stepper_id;
             Can1::sendMessage(err);
-            return;
-        }
+        } else if (res == MotionStartResult::AlreadyDone) {
+            modm::can::Message starting(CANID_IO_STEPPER_GOTO_STARTING, 1);
+            starting.data[0] = stepper_id;
+            Can1::sendMessage(starting);
 
-        steppers[stepper_id]->goto_absolute(absolute_steps, acceleleration, max_velocity);
+            modm::can::Message finished(CANID_IO_STEPPER_GOTO_FINISHED, 1);
+            finished.data[0] = stepper_id;
+            Can1::sendMessage(finished);
+        } else if (res == MotionStartResult::Started) {
+            modm::can::Message starting(CANID_IO_STEPPER_GOTO_STARTING, 1);
+            starting.data[0] = stepper_id;
+            Can1::sendMessage(starting);
+        }
     }
 }
 
@@ -630,19 +637,27 @@ int main()
         }
 
         for (uint8_t stepper_id = 0 ; stepper_id < 5 ; ++stepper_id) {
-            if (steppers[stepper_id]->homing_has_succeeded_flag()) {
+            MotionStatus status = steppers[stepper_id]->get_status();
+            
+            if (status == MotionStatus::FlagHomeSucceeded) {
+                steppers[stepper_id]->clear_status_flag();
+
                 modm::can::Message msg(CANID_IO_STEPPER_HOME_SUCCEEDED, 1);
                 msg.data[0] = stepper_id;
                 Can1::sendMessage(msg);
             }
 
-            else if (steppers[stepper_id]->homing_has_failed_flag()) {
+            else if (status == MotionStatus::FlagHomeFailed) {
+                steppers[stepper_id]->clear_status_flag();
+
                 modm::can::Message err(CANID_IO_STEPPER_HOME_FAILED, 1);
                 err.data[0] = stepper_id;
                 Can1::sendMessage(err);
             }
 
-            else if (steppers[stepper_id]->goto_has_finished_flag()) {
+            else if (status == MotionStatus::FlagGotoFinished) {
+                steppers[stepper_id]->clear_status_flag();
+
                 modm::can::Message msg(CANID_IO_STEPPER_GOTO_FINISHED, 1);
                 msg.data[0] = stepper_id;
                 Can1::sendMessage(msg);
