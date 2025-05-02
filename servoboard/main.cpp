@@ -40,32 +40,27 @@ struct SystemClock {
     static constexpr uint32_t Apb1Timer = Apb1 * 1;
     static constexpr uint32_t Apb2Timer = Apb2 * 1;
     static constexpr uint32_t Timer1 = Apb2Timer;
-    static constexpr uint32_t Timer15 = Apb2Timer;
-    static constexpr uint32_t Timer16 = Apb2Timer;
     static constexpr uint32_t Timer2 = Apb1Timer;
     static constexpr uint32_t Timer6 = Apb1Timer;
     static constexpr uint32_t Timer7 = Apb1Timer;
-
-    static constexpr uint32_t Iwdg = Rcc::LsiFrequency;
-    static constexpr uint32_t Rtc = 32.768_kHz;
+    static constexpr uint32_t Timer15 = Apb2Timer;
+    static constexpr uint32_t Timer16 = Apb2Timer;
 
     static bool inline enable()
     {
-        const Rcc::PllFactors pllFactors {
-            .pllM = 1, //   4MHz /  1 -> 4MHz
-            .pllN = 40, //   4MHz * 40 -> 160MHz <= 344MHz = PLL VCO output max, >= 64 MHz = PLL VCO out min
-            .pllR = 2, // 160MHz /  2 -> 80MHz = F_cpu
-        };
-        Rcc::enablePll(Rcc::PllSource::MultiSpeedInternalClock, pllFactors);
-        Rcc::setFlashLatency<Frequency>();
+        Rcc::enableInternalClock();
 
-        // switch system clock to PLL output
+        const Rcc::PllFactors pllFactors {
+            .pllM = 1,
+            .pllN = 10,
+            .pllR = 2,
+        };
+        Rcc::enablePll(Rcc::PllSource::InternalClock, pllFactors);
+        Rcc::setFlashLatency<Frequency>();
         Rcc::enableSystemClock(Rcc::SystemClockSource::Pll);
         Rcc::setAhbPrescaler(Rcc::AhbPrescaler::Div1);
-        // APB1 has max. 80MHz
         Rcc::setApb1Prescaler(Rcc::Apb1Prescaler::Div1);
         Rcc::setApb2Prescaler(Rcc::Apb2Prescaler::Div1);
-        // update frequencies for busy-wait delay functions
         Rcc::updateCoreFrequency<Frequency>();
 
         return true;
