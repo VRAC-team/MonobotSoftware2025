@@ -139,6 +139,7 @@ int main()
     Can1::initialize<SystemClock, 1_Mbps>(9);
     // filter 0x100 to 0x1FF
     CanFilter::setFilter(0, CanFilter::FIFO0, CanFilter::StandardIdentifier(0x100), CanFilter::StandardFilterMask(0x700));
+    Can1::setAutomaticRetransmission(true);
 
     MODM_LOG_INFO << "starting servoboard date:" << __DATE__ << " time:" __TIME__ << modm::endl;
     MODM_LOG_INFO.flush();

@@ -139,6 +139,7 @@ int main()
     Can1::initialize<SystemClock, 1_Mbps>(9);
     // filter 0x000 to 0x0FF
     CanFilter::setFilter(0, CanFilter::FIFO0, CanFilter::StandardIdentifier(0), CanFilter::StandardFilterMask(0x700));
+    Can1::setAutomaticRetransmission(true);
 
     uint16_t timer_overflow = Timer1::getOverflow();
     bool setpoint_error = true;

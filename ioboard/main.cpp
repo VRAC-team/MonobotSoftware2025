@@ -627,6 +627,7 @@ int main()
     Can1::initialize<SystemClock, 1_Mbps>(9);
     // filter 0x200 to 0x2FF
     CanFilter::setFilter(0, CanFilter::FIFO0, CanFilter::StandardIdentifier(0x200), CanFilter::StandardFilterMask(0x700));
+    Can1::setAutomaticRetransmission(true);
 
     modm::PeriodicTimer blinker { 50ms };
     
