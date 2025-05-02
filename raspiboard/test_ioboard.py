@@ -238,6 +238,6 @@ class IOBoardTests(can_test_utils.CanBusTestCase):
 
 if __name__ == '__main__':
     suite = unittest.TestLoader().loadTestsFromTestCase(IOBoardTests)
-    runner = can_test_utils.CustomRunner(verbosity=2)
+    runner = can_test_utils.CustomRunner()
     runner.run(suite)
     bus.shutdown()

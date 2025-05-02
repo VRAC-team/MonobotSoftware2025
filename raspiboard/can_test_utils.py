@@ -7,30 +7,40 @@ from colorama import Fore, Style
 import can
 import can_utils
 
-class VerboseTestResult(unittest.TextTestResult):
+class CustomTestResult(unittest.TextTestResult):
+    def startTestRun(self):
+        self._suite_start_time = time.time()
+        super().startTestRun()
+
+    def stopTestRun(self):
+        elapsed = time.time() - self._suite_start_time
+        self.stream.write(f"\n{Fore.CYAN}Total time: {elapsed:.2f}s{Style.RESET_ALL}\n")
+        super().stopTestRun()
+
     def startTest(self, test):
         self._start_time = time.time()
         test_name = self.getDescription(test)
-        print(f"\n{Fore.CYAN}Starting {test_name}:")
+        self.stream.write(f"\n{Fore.CYAN}Starting {test_name}:{Style.RESET_ALL}\n")
+        super().startTest(test)
 
     def addSuccess(self, test):
         elapsed = time.time() - self._start_time
-        print(f"{Fore.GREEN}PASSED{Style.RESET_ALL} in {elapsed:.2f}s")
+        self.stream.write(f"{Fore.GREEN}PASSED{Style.RESET_ALL} in {elapsed:.2f}s\n")
         super().addSuccess(test)
 
     def addFailure(self, test, err):
         elapsed = time.time() - self._start_time
-        print(f"{Fore.RED}FAILED{Style.RESET_ALL} in {elapsed:.2f}s")
+        self.stream.write(f"{Fore.RED}FAILED{Style.RESET_ALL} in {elapsed:.2f}s\n")
         super().addFailure(test, err)
 
     def addError(self, test, err):
         elapsed = time.time() - self._start_time
-        print(f"{Fore.MAGENTA}ERROR{Style.RESET_ALL} in {elapsed:.2f}s")
+        self.stream.write(f"{Fore.MAGENTA}ERROR{Style.RESET_ALL} in {elapsed:.2f}s\n")
         super().addError(test, err)
 
 class CustomRunner(unittest.TextTestRunner):
     def __init__(self, **kwargs):
-        super().__init__(resultclass=VerboseTestResult, **kwargs)
+        super().__init__(resultclass=CustomTestResult, **kwargs)
 
 class CanBusTestCase(unittest.TestCase):
     silent_can_ids: set[int] = set()
