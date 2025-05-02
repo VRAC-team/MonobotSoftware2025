@@ -33,20 +33,27 @@
 #define CANID_SERVO_REBOOT 0x100
 // reboot the board
 
-#define CANID_SERVO_ENABLE_POWER 0x101
+#define CANID_SERVO_ERROR_INVALID_PARAMS 0x101
+// send by the servoboard when invalid: stepper_id, led_id
+
+#define CANID_SERVO_ERROR_NOT_ENABLED 0x102
+// send by the servoboard when WRITE_US or SET_LED_PATTERN but pwoer is not enabled for the current servo_id/led_id
+// <u8 invalid_servo_id/invalid_led_id>
+
+#define CANID_SERVO_ENABLE_POWER 0x103
 // enable/disable power supplies
 // power1 is servos[0-7], power2 is servo[8-15], power3 is leds[0-3]
 // <u8 power1_en(bool)>
 // <u8 power2_en(bool)>
 // <u8 power3_en(bool)>
 
-#define CANID_SERVO_WRITE_US 0x102
-// <u8 id(0-15)>
-// <u16 microseconds(500-2500)>
+#define CANID_SERVO_WRITE_US 0x104
+// <u8 servo_id(0-15)>
+// <u16 servo_us(500-2500)>
 
-#define CANID_SERVO_SET_LED_PATTERN 0x103
-// <u8 id(0-3)>
-// <u8 pattern>
+#define CANID_SERVO_SET_LED_PATTERN 0x105
+// <u8 led_id(0-3)>
+// <u8 led_pattern>
 
 #define CANID_SERVO_STATUS 0x1EE
 // sent periodically by servoboard

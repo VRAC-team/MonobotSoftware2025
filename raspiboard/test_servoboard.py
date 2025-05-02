@@ -4,6 +4,7 @@ from canids import CANIDS
 import unittest
 import colorama
 import time
+import can
 from boards.servoboard import ServoBoard
 from colorama import Fore, Style
 
@@ -30,6 +31,7 @@ class ServoBoardTests(can_test_utils.CanBusTestCase):
 
     def test_00_reboot(self):
         servoboard.reboot()
+        time.sleep(3) # servoboard has 2s wait at startup
         self.assertCanIdReceived([CANIDS.CANID_SERVO_ALIVE], [True], timeout=2)
         self.assertCanIdReceived([CANIDS.CANID_SERVO_ALIVE], [False], timeout=2)
 
@@ -55,11 +57,26 @@ class ServoBoardTests(can_test_utils.CanBusTestCase):
             time.sleep(3)
 
     def test_06_servo_write_us_invalid_id(self):
-        servoboard.servo_write_us(servo_id=20, servo_us=1500)  # Should silently do nothing
+        servo_us = 2000
+        for servo_id in [16, 200]:
+            data = bytearray(
+                servo_id.to_bytes(1) +
+                servo_us.to_bytes(2)
+            )
+            msg = can.Message(arbitration_id=CANIDS.CANID_SERVO_WRITE_US, data=data, is_extended_id=False)
+            self.bus.send(msg)
+            self.assertCanIdReceived([CANIDS.CANID_SERVO_ERROR_INVALID_PARAMS], timeout=1)
 
     def test_07_servo_write_us_invalid_pulse(self):
-        servoboard.servo_write_us(servo_id=0, servo_us=300)    # Too low
-        servoboard.servo_write_us(servo_id=0, servo_us=3000)   # Too high
+        servo_id = 0
+        for servo_us in [300, 3000]:
+            data = bytearray(
+                servo_id.to_bytes(1) +
+                servo_us.to_bytes(2)
+            )
+            msg = can.Message(arbitration_id=CANIDS.CANID_SERVO_WRITE_US, data=data, is_extended_id=False)
+            self.bus.send(msg)
+            self.assertCanIdReceived([CANIDS.CANID_SERVO_ERROR_INVALID_PARAMS], timeout=1)
 
     def test_08_set_led_pattern_valid(self):
         for pattern in range(8):
@@ -69,11 +86,38 @@ class ServoBoardTests(can_test_utils.CanBusTestCase):
             time.sleep(3)
 
     def test_09_set_led_pattern_invalid_id(self):
-        servoboard.set_led_pattern(led_id=5, led_pattern=2)  # Should silently do nothing
+        led_pattern = 1
+        for led_id in [4, 5, 6, 10, 100]:
+            data = bytearray(
+                led_id.to_bytes(1) +
+                led_pattern.to_bytes(1)
+            )
+            msg = can.Message(arbitration_id=CANIDS.CANID_SERVO_SET_LED_PATTERN, data=data, is_extended_id=False)
+            self.bus.send(msg)
+            self.assertCanIdReceived([CANIDS.CANID_SERVO_ERROR_INVALID_PARAMS], timeout=1)
 
     def test_10_set_led_pattern_invalid_pattern(self):
-        servoboard.set_led_pattern(led_id=0, led_pattern=-1)  # Should silently do nothing
+        servoboard.set_led_pattern(led_id=0, led_pattern=200)  # Should silently do nothing
 
+    def test_11_servo_write_us_error_not_enabled(self):
+        # disabling power for servos 0-7
+        servoboard.enable_power(False, True, True)
+        for servo_id in range(8):
+            servoboard.servo_write_us(servo_id=servo_id, servo_us=2000)
+            self.assertCanIdReceived([CANIDS.CANID_SERVO_ERROR_NOT_ENABLED], timeout=1)
+
+        # disabling power for servos 8-15
+        servoboard.enable_power(True, False, True)
+        for servo_id in range(8, 16):
+            servoboard.servo_write_us(servo_id=servo_id, servo_us=2000)
+            self.assertCanIdReceived([CANIDS.CANID_SERVO_ERROR_NOT_ENABLED], timeout=1)
+
+    def test_12_set_led_pattern_error_not_enabled(self):
+        # disabling power for leds
+        servoboard.enable_power(True, True, False)
+        for led_id in range(4):
+            servoboard.set_led_pattern(led_id=led_id, led_pattern=2)
+            self.assertCanIdReceived([CANIDS.CANID_SERVO_ERROR_NOT_ENABLED], timeout=1)
 
 if __name__ == '__main__':
     suite = unittest.TestLoader().loadTestsFromTestCase(ServoBoardTests)

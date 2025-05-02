@@ -3,6 +3,7 @@
 #include <modm/board.hpp>
 #include <modm/platform.hpp>
 #include <modm/processing.hpp>
+#include <array>
 
 #undef MODM_LOG_LEVEL
 #define MODM_LOG_LEVEL modm::log::INFO
@@ -221,9 +222,27 @@ int main()
 
         else if (message.identifier == CANID_SERVO_WRITE_US && message.length == 3) {
             uint8_t servo_id = message.data[0];
-            int16_t servo_us = (message.data[1] << 8) | message.data[2];
+            uint16_t servo_us = (message.data[1] << 8) | message.data[2];
 
             if (servo_id >= 16) {
+                modm::can::Message err(CANID_SERVO_ERROR_INVALID_PARAMS, 0);
+                err.setExtended(false);
+                Can1::sendMessage(err);
+                continue;
+            }
+
+            if (servo_us < 500 || servo_us > 2500) {
+                modm::can::Message err(CANID_SERVO_ERROR_INVALID_PARAMS, 0);
+                err.setExtended(false);
+                Can1::sendMessage(err);
+                continue;
+            }
+            
+            if ((servo_id <= 7 && !power1_oe::read()) || (servo_id > 7 && !power2_oe::read())) {
+                modm::can::Message err(CANID_SERVO_ERROR_NOT_ENABLED, 1);
+                err.setExtended(false);
+                err.data[0] = servo_id;
+                Can1::sendMessage(err);
                 continue;
             }
 
@@ -233,6 +252,21 @@ int main()
         else if (message.identifier == CANID_SERVO_SET_LED_PATTERN && message.length == 2) {
             uint8_t led_id = message.data[0];
             uint8_t led_pattern = message.data[1];
+
+            if (led_id >= 4) {
+                modm::can::Message err(CANID_SERVO_ERROR_INVALID_PARAMS, 0);
+                err.setExtended(false);
+                Can1::sendMessage(err);
+                continue;
+            }
+
+            if (!power3_oe::read()) {
+                modm::can::Message err(CANID_SERVO_ERROR_NOT_ENABLED, 1);
+                err.setExtended(false);
+                err.data[0] = led_id;
+                Can1::sendMessage(err);
+                continue;
+            }
 
             servoboard_arduino.set_led_pattern(led_id, led_pattern);
         }
