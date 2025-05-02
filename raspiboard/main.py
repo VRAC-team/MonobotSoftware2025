@@ -16,6 +16,8 @@ import gc
 import can
 from can.interfaces.socketcan import SocketcanBus
 
+from canids import CANIDS
+
 @dataclasses.dataclass
 class GamepadUpdateData:
     x: float
@@ -322,25 +324,25 @@ class RampFilter:
 
 def can_alive_thread():
     while True:
-        msg = can.Message(arbitration_id=CANID_RASPI_ALIVE)
+        msg = can.Message(arbitration_id=CANIDS.CANID_RASPI_ALIVE)
         bus.send(msg)
         time.sleep(1)
 
 def can_read_thread():
     while True:
         for msg in bus:
-            if msg.arbitration_id == CANID_MOTOR_ALIVE:
-                error = struct.unpack(">?", msg.data)
+            if msg.arbitration_id == CANIDS.CANID_MOTOR_ALIVE:
+                first_alive_since_reboot, error = struct.unpack(">??", msg.data)
                 print(f"[CAN] MotorBoard IsAlive error:{error}")
 
-            elif msg.arbitration_id == CANID_MOTOR_STATUS:
+            elif msg.arbitration_id == CANIDS.CANID_MOTOR_STATUS:
                 enc_left, enc_right, timeout_remaining = struct.unpack(">HHh", msg.data)
                 encoder_left.update(enc_left)
                 encoder_right.update(enc_right)
                 odometry.update(encoder_left.get(), -encoder_right.get())
                 # send_telemetry("timeout_remaining", timeout_remaining)
 
-            elif msg.arbitration_id == CANID_MOTOR_SETPOINT_ERROR:
+            elif msg.arbitration_id == CANIDS.CANID_MOTOR_SETPOINT_ERROR:
                 timeout_remaining = struct.unpack(">i", msg.data)
                 print(f"SETPOINT ERROR! timeout_remaining:{timeout_remaining}")
             
@@ -372,13 +374,6 @@ def watch_gpios_thread(chip_path: str = "/dev/gpiochip0", line_offsets: tuple = 
 CONTROL_LOOP_PERIOD = 1/200
 WHEEL_PERIMETER = 52.42 * math.pi  # diameter in mm
 WHEEL_SPACING = 258.5 # in mm
-
-CANID_MOTOR_SETPOINT = 0x0
-CANID_MOTOR_STATUS = 0x1
-CANID_MOTOR_SETPOINT_ERROR = 0x100
-CANID_MOTOR_RESET_SETPOINT_ERROR = 0x101
-CANID_MOTOR_ALIVE = 0x1FF
-CANID_RASPI_ALIVE = 0x2FF
 
 bus = get_can_interface()
 
@@ -456,7 +451,7 @@ def main():
 
             print("sent error reset")
             
-            msg = can.Message(arbitration_id=CANID_MOTOR_RESET_SETPOINT_ERROR)
+            msg = can.Message(arbitration_id=CANIDS.CANID_MOTOR_RESET_SETPOINT_ERROR)
             try:
                 bus.send(msg)
             except can.exceptions.CanError as e:
@@ -507,7 +502,7 @@ def main():
             pwm_left = -32768;
 
         data = bytearray(struct.pack(">hh", pwm_right, pwm_left))
-        msg = can.Message(arbitration_id=CANID_MOTOR_SETPOINT, data=data)
+        msg = can.Message(arbitration_id=CANIDS.CANID_MOTOR_SETPOINT, data=data)
         try:
             bus.send(msg)
         except can.exceptions.CanError as e:
