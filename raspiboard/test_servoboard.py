@@ -29,6 +29,12 @@ class ServoBoardTests(can_test_utils.CanBusTestCase):
         cls.bus = bus
         super().setUpClass()
 
+    @classmethod
+    def tearDownClass(cls):
+        # disable power after the tests
+        servoboard.enable_power(False, False, False)
+        super().tearDownClass()
+
     def test_00_reboot(self):
         servoboard.reboot()
         time.sleep(4) # servoboard has 3s wait at startup

@@ -34,6 +34,12 @@ class IOBoardTests(can_test_utils.CanBusTestCase):
     def setUpClass(cls):
         cls.bus = bus
         super().setUpClass()
+    
+    @classmethod
+    def tearDownClass(cls):
+        # disable power after the tests
+        ioboard.enable(False)
+        super().tearDownClass()
 
     def return_to_zero(self):
         ioboard.goto_abs(STEPPER_ID, 0, ACCEL, MAX_VEL)
