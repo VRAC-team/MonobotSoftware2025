@@ -72,7 +72,6 @@ template <class I2cMaster>
 class ServoboardArduino : public modm::I2cDevice<I2cMaster, 1, modm::I2cWriteTransaction> {
 public:
     ServoboardArduino(uint8_t address = 0x8) : modm::I2cDevice<I2cMaster, 1, modm::I2cWriteTransaction>(address) {
-        reset_all_leds();
     }
 
     void reset_all_leds() {
@@ -103,6 +102,7 @@ int main()
     Board::stlink::Uart::initialize<SystemClock, 115200_Bd>();
 
     Board::LedD13::setOutput();
+    Board::LedD13::set();
 
     pca_oe::setOutput();
     pca_oe::reset();
@@ -114,11 +114,18 @@ int main()
     power2_oe::reset();
     power3_oe::reset();
 
-    //Adc1::initialize(Adc1::ClockMode::SynchronousPrescaler1, Adc1::ClockSource::SystemClock, Adc1::Prescaler::Disabled, Adc1::CalibrationMode::SingleEndedInputsMode, true);
+    // let's wait for the arduino nano to boot, because I didn't found non blocking i2c read/write on modm
+    // yes arduino is that slow to boot and be ready for i2c
+    modm::delay_ms(2000);
+
+    Adc1::initialize(Adc1::ClockMode::SynchronousPrescaler1, Adc1::ClockSource::SystemClock, Adc1::Prescaler::Disabled, Adc1::CalibrationMode::SingleEndedInputsMode, true);
+    Adc1::connect<power3_adc_chan>();
+    Adc1::setPinChannel<power3_adc>(Adc1::SampleTime::Cycles48);
 
     I2cMaster3::connect<GpioB4::Sda, GpioA7::Scl>();
     I2cMaster3::initialize<SystemClock, 400_kHz>();
     ServoboardArduino<I2cMaster3> servoboard_arduino;
+    servoboard_arduino.reset_all_leds();
 
     const uint8_t servos_mapping[16] = { 11, 10, 9, 8, 7, 6, 5, 4, 12, 13, 14, 15, 3, 2, 1, 0 };
     I2cMaster1::connect<GpioB7::Sda, GpioB6::Scl>();
