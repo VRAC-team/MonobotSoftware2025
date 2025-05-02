@@ -24,10 +24,10 @@ using hc165_data = GpioOutputC10;
 using hc165_latch = GpioOutputC12;
 
 struct SystemClock {
-    static constexpr uint32_t Frequency = 72_MHz;
+    static constexpr uint32_t Frequency = 180_MHz;
     static constexpr uint32_t Ahb = Frequency;
-    static constexpr uint32_t Apb1 = Frequency / 2;
-    static constexpr uint32_t Apb2 = Frequency / 1;
+    static constexpr uint32_t Apb1 = Frequency / 4;
+    static constexpr uint32_t Apb2 = Frequency / 2;
 
     static constexpr uint32_t Adc = Apb2;
 
@@ -50,8 +50,8 @@ struct SystemClock {
     static constexpr uint32_t I2c2 = Apb1;
     static constexpr uint32_t I2c3 = Apb1;
 
-    static constexpr uint32_t Apb1Timer = Apb1 * 1;
-    static constexpr uint32_t Apb2Timer = Apb2 * 1;
+    static constexpr uint32_t Apb1Timer = Apb1 * 2;
+    static constexpr uint32_t Apb2Timer = Apb2 * 2;
     static constexpr uint32_t Timer1 = Apb2Timer;
     static constexpr uint32_t Timer2 = Apb1Timer;
     static constexpr uint32_t Timer3 = Apb1Timer;
@@ -74,8 +74,8 @@ struct SystemClock {
     {
         Rcc::enableExternalCrystal();
         const Rcc::PllFactors pllFactors {
-            .pllM = 4,
-            .pllN = 72,
+            .pllM = 8,
+            .pllN = 360,
             .pllP = 2,
             .pllQ = 2,
         };
@@ -83,8 +83,8 @@ struct SystemClock {
         Rcc::setFlashLatency<Frequency>();
         Rcc::enableSystemClock(Rcc::SystemClockSource::Pll);
         Rcc::setAhbPrescaler(Rcc::AhbPrescaler::Div1);
-        Rcc::setApb1Prescaler(Rcc::Apb1Prescaler::Div2);
-        Rcc::setApb2Prescaler(Rcc::Apb2Prescaler::Div1);
+        Rcc::setApb1Prescaler(Rcc::Apb1Prescaler::Div4);
+        Rcc::setApb2Prescaler(Rcc::Apb2Prescaler::Div2);
         Rcc::updateCoreFrequency<Frequency>();
 
         return true;
