@@ -1,4 +1,4 @@
-# Auto-generated on 2025-05-02 18:43:22
+# Auto-generated on 2025-05-03 00:43:46
 
 class CANIDS:
     CANID_MOTOR_REBOOT = 0x00
@@ -35,6 +35,7 @@ class CANIDS:
     CANID_PUMP_SET = 0x301
     CANID_PUMP_STATUS = 0x3ee
     CANID_PUMP_ALIVE = 0x3ff
+    CANID_RASPI_ALIVE = 0x4ff
 
     @classmethod
     def get_name(cls, can_id: int) -> str:

@@ -163,8 +163,9 @@
 
 
 // ============= RASPI BOARD =============
-#define CANID_RASPI_ALIVE = 0x4FF
+#define CANID_RASPI_ALIVE 0x4FF
 // sent periodically by raspiboard
 // <u8 first_alive_since_reboot(bool)>
+// <u8 error(bool)>
 
 #endif
