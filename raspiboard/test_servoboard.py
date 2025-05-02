@@ -31,7 +31,7 @@ class ServoBoardTests(can_test_utils.CanBusTestCase):
 
     def test_00_reboot(self):
         servoboard.reboot()
-        time.sleep(3) # servoboard has 2s wait at startup
+        time.sleep(4) # servoboard has 3s wait at startup
         self.assertCanIdReceived([CANIDS.CANID_SERVO_ALIVE], [True], timeout=2)
         self.assertCanIdReceived([CANIDS.CANID_SERVO_ALIVE], [False], timeout=2)
 

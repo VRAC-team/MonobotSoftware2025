@@ -116,7 +116,7 @@ int main()
 
     // let's wait for the arduino nano to boot, because I didn't found non blocking i2c read/write on modm
     // yes arduino is that slow to boot and be ready for i2c
-    modm::delay_ms(2000);
+    modm::delay_ms(3000);
 
     Adc1::initialize(Adc1::ClockMode::SynchronousPrescaler1, Adc1::ClockSource::SystemClock, Adc1::Prescaler::Disabled, Adc1::CalibrationMode::SingleEndedInputsMode, true);
     Adc1::connect<power3_adc_chan>();
