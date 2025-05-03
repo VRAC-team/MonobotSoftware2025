@@ -140,6 +140,7 @@
 
 #define CANID_IO_STATUS 0x2EE
 // sent periodically by ioboard
+// <u8 enable(bool)>
 // <u16 tors(bitset)>
 
 #define CANID_IO_ALIVE 0x2FF

@@ -653,10 +653,11 @@ int main()
         if (status_timer.execute()) {
             uint16_t tors = read_tors();
 
-            modm::can::Message status(CANID_IO_STATUS, 2);
+            modm::can::Message status(CANID_IO_STATUS, 3);
             status.setExtended(false);
-            status.data[0] = tors >> 8;
-            status.data[1] = tors & 0xFF;
+            status.data[0] = step_en::read();
+            status.data[1] = tors >> 8;
+            status.data[2] = tors & 0xFF;
             Can1::sendMessage(status);
         }
 
