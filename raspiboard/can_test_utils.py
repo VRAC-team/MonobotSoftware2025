@@ -8,12 +8,9 @@ import can
 
 class CustomTestResult(unittest.TextTestResult):
     def startTestRun(self):
-        self._suite_start_time = time.time()
         super().startTestRun()
 
     def stopTestRun(self):
-        elapsed = time.time() - self._suite_start_time
-        self.stream.write(f"\n{Fore.CYAN}Total time: {elapsed:.2f}s{Style.RESET_ALL}\n")
         super().stopTestRun()
 
     def startTest(self, test):
@@ -99,7 +96,7 @@ class CanBusTestCase(unittest.TestCase):
         self,
         expected_can_id: list[int],
         expected_can_data: bytes | list[int] | None = None,
-        timeout: float = 5
+        timeout: float = 1
     ) -> bool:
         deadline = time.time() + timeout
 
@@ -125,7 +122,7 @@ class CanBusTestCase(unittest.TestCase):
                     
                     return True
 
-        self.fail(f"CAN ID {expected_can_id} was not received within {timeout} seconds with {expected_can_data}.")
+        self.fail(f"CAN ID {expected_can_id} was not received within {timeout} seconds with data {expected_can_data}.")
 
     def assertCanMessageNotReceived(
         self,

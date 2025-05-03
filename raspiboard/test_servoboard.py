@@ -5,7 +5,7 @@ import unittest
 import colorama
 import time
 import can
-from boards.servoboard import ServoBoard
+from boards.servoboard import ServoBoard, ServoConfig
 from colorama import Fore, Style
 
 colorama.init(autoreset=True)
@@ -16,9 +16,24 @@ bus.set_filters([{
     "can_mask": 0x700,
     "extended": False
 }])
-servoboard = ServoBoard(bus)
 
-class ServoBoardTests(can_test_utils.CanBusTestCase):
+servoboard = ServoBoard(bus, { i: ServoConfig() for i in range(16) })
+
+VALID_SERVO_ID = [0, 1, 8, 15]
+INVALID_SERVO_ID = [-1, 16, 17, 200]
+
+VALID_SERVO_US = [1500, 1000, 2000]
+INVALID_SERVO_US = [-40, 300, 3000]
+
+VALID_SERVO_ANGLE = [0, 90, 180]
+INVALID_SERVO_ANGLE = [-1, 360, 720]
+
+VALID_LED_ID = [0, 1, 2, 3]
+INVALID_LED_ID = [-1, 4, 5, 16]
+
+VALID_LED_PATTERN = [i for i in range(7)]
+
+class ServoBoardIntegrationTests(can_test_utils.CanBusTestCase):
     @classmethod
     def get_can_silent_ids(cls):
         return {
@@ -32,12 +47,10 @@ class ServoBoardTests(can_test_utils.CanBusTestCase):
 
     @classmethod
     def tearDownClass(cls):
-        # disable power after the tests
-        servoboard.enable_power(False, False, False)
         super().tearDownClass()
 
     def test_00_reboot(self):
-        servoboard.reboot()
+        self.assertTrue(servoboard.reboot())
         time.sleep(4) # servoboard has 3s wait at startup
         self.assertCanMessageReceived([CANIDS.CANID_SERVO_ALIVE], [True], timeout=2)
         self.assertCanMessageReceived([CANIDS.CANID_SERVO_ALIVE], [False], timeout=2)
@@ -51,84 +64,98 @@ class ServoBoardTests(can_test_utils.CanBusTestCase):
             self.assertCanMessageReceived([CANIDS.CANID_SERVO_STATUS], timeout=2)
 
     def test_03_enable_power_none(self):
-        servoboard.enable_power(False, False, False)
+        self.assertTrue(servoboard.enable_power(False, False, False))
 
     def test_04_enable_power_all(self):
-        servoboard.enable_power(True, True, True)
+        self.assertTrue(servoboard.enable_power(True, True, True))
 
+    ##### servo_write_us #####
     def test_05_servo_write_us_valid(self):
-        for us in [1500, 2000, 2500]:
+        for us in VALID_SERVO_US:
             print(f"setting all servos to {us}")
             for id in range(16):
-                servoboard.servo_write_us(servo_id=id, servo_us=us)
+                self.assertTrue(servoboard.servo_write_us(id, us))
             time.sleep(3)
 
-    def test_06_servo_write_us_invalid_id(self):
-        servo_us = 2000
-        for servo_id in [16, 200]:
-            data = bytearray(
-                servo_id.to_bytes(1) +
-                servo_us.to_bytes(2)
-            )
-            msg = can.Message(arbitration_id=CANIDS.CANID_SERVO_WRITE_US, data=data, is_extended_id=False)
-            self.bus.send(msg)
-            self.assertCanMessageReceived([CANIDS.CANID_SERVO_ERROR_INVALID_PARAMS], timeout=1)
+    ##### servo_write_angle #####
+    def test_06_servo_write_angle_valid(self):
+        for id in VALID_SERVO_ID:
+            for angle in VALID_SERVO_ANGLE:
+                self.assertTrue(servoboard.servo_write_angle(id, angle))
 
-    def test_07_servo_write_us_invalid_pulse(self):
-        servo_id = 0
-        for servo_us in [300, 3000]:
-            data = bytearray(
-                servo_id.to_bytes(1) +
-                servo_us.to_bytes(2)
-            )
-            msg = can.Message(arbitration_id=CANIDS.CANID_SERVO_WRITE_US, data=data, is_extended_id=False)
-            self.bus.send(msg)
-            self.assertCanMessageReceived([CANIDS.CANID_SERVO_ERROR_INVALID_PARAMS], timeout=1)
-
-    def test_08_set_led_pattern_valid(self):
+    ##### set_led_pattern #####
+    def test_07_set_led_pattern_valid(self):
         for pattern in range(8):
             print(f"setting all led to pattern to {pattern}")
             for id in range(4):
-                servoboard.set_led_pattern(led_id=id, led_pattern=pattern)
-            time.sleep(3)
+                self.assertTrue(servoboard.set_led_pattern(id, pattern))
+            
+            time.sleep(3) # sleep a little bit to admire these cool led patterns :D
 
-    def test_09_set_led_pattern_invalid_id(self):
-        led_pattern = 1
-        for led_id in [4, 5, 6, 10, 100]:
-            data = bytearray(
-                led_id.to_bytes(1) +
-                led_pattern.to_bytes(1)
-            )
-            msg = can.Message(arbitration_id=CANIDS.CANID_SERVO_SET_LED_PATTERN, data=data, is_extended_id=False)
-            self.bus.send(msg)
-            self.assertCanMessageReceived([CANIDS.CANID_SERVO_ERROR_INVALID_PARAMS], timeout=1)
+    ##### test ERROR_NOT_ENABLED #####
+    def test_08_servo_write_us_error_not_enabled(self):
+        # disabling power only for servos 0-7
+        self.assertTrue(servoboard.enable_power(False, True, True))
+        for id in range(8):
+            for us in VALID_SERVO_US:
+                self.assertTrue(servoboard.servo_write_us(id, us))
+                self.assertCanMessageReceived([CANIDS.CANID_SERVO_ERROR_NOT_ENABLED])
 
-    def test_10_set_led_pattern_invalid_pattern(self):
-        servoboard.set_led_pattern(led_id=0, led_pattern=200)  # Should silently do nothing
+        # disabling power only for servos 8-15
+        self.assertTrue(servoboard.enable_power(True, False, True))
+        for id in range(8, 16):
+            for us in VALID_SERVO_US:
+                self.assertTrue(servoboard.servo_write_us(id, us))
+                self.assertCanMessageReceived([CANIDS.CANID_SERVO_ERROR_NOT_ENABLED])
 
-    def test_11_servo_write_us_error_not_enabled(self):
-        # disabling power for servos 0-7
-        servoboard.enable_power(False, True, True)
-        for servo_id in range(8):
-            servoboard.servo_write_us(servo_id=servo_id, servo_us=2000)
-            self.assertCanMessageReceived([CANIDS.CANID_SERVO_ERROR_NOT_ENABLED], timeout=1)
+    def test_09_set_led_pattern_error_not_enabled(self):
+        # disabling power only for leds
+        self.assertTrue(servoboard.enable_power(True, True, False))
+        for id in range(4):
+            for pattern in VALID_LED_PATTERN:
+                self.assertTrue(servoboard.set_led_pattern(id, pattern))
+                self.assertCanMessageReceived([CANIDS.CANID_SERVO_ERROR_NOT_ENABLED])
 
-        # disabling power for servos 8-15
-        servoboard.enable_power(True, False, True)
-        for servo_id in range(8, 16):
-            servoboard.servo_write_us(servo_id=servo_id, servo_us=2000)
-            self.assertCanMessageReceived([CANIDS.CANID_SERVO_ERROR_NOT_ENABLED], timeout=1)
 
-    def test_12_set_led_pattern_error_not_enabled(self):
-        # disabling power for leds
-        servoboard.enable_power(True, True, False)
-        for led_id in range(4):
-            servoboard.set_led_pattern(led_id=led_id, led_pattern=2)
-            self.assertCanMessageReceived([CANIDS.CANID_SERVO_ERROR_NOT_ENABLED], timeout=1)
+class ServoBoardUnitTests(unittest.TestCase):
+    def test_01_servo_write_us_invalid_id(self):
+        for id in INVALID_SERVO_ID:
+            for us in VALID_SERVO_US:
+                # test ServoBoard class
+                self.assertFalse(servoboard.servo_write_us(id, us))
+
+    def test_02_servo_write_us_invalid_us(self):
+        for id in VALID_SERVO_ID:
+            for us in INVALID_SERVO_US:
+                # test ServoBoard class
+                self.assertFalse(servoboard.servo_write_us(id, us))
+
+    def test_03_servo_write_angle_invalid_id(self):
+        for id in INVALID_SERVO_ID:
+            for angle in VALID_SERVO_ANGLE:
+                self.assertFalse(servoboard.servo_write_angle(id, angle))
+
+    def test_04_servo_write_angle_invalid_angle(self):
+        for id in VALID_SERVO_ID:
+            for angle in INVALID_SERVO_ANGLE:
+                self.assertFalse(servoboard.servo_write_angle(id, angle))
+
+    def test_05_set_led_pattern_invalid_id(self):
+        for id in INVALID_LED_ID:
+            for pattern in VALID_LED_PATTERN:
+                self.assertFalse(servoboard.set_led_pattern(id, pattern))
 
 if __name__ == '__main__':
-    ServoBoardTests.bus = bus
-    suite = unittest.TestLoader().loadTestsFromTestCase(ServoBoardTests)
+    ServoBoardIntegrationTests.bus = bus
+    
     runner = can_test_utils.CustomRunner()
-    runner.run(suite)
+
+    unit_tests = unittest.TestLoader().loadTestsFromTestCase(ServoBoardUnitTests)
+    runner.run(unit_tests)
+
+    integration_tests = unittest.TestLoader().loadTestsFromTestCase(ServoBoardIntegrationTests)
+    runner.run(integration_tests)
+
+    servoboard.reboot()
+
     bus.shutdown()

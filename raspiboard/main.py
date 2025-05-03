@@ -15,8 +15,11 @@ import queue
 import gc
 import can
 from can.interfaces.socketcan import SocketcanBus
-
+from boards.motorboard import MotorBoard
+from boards.ioboard import IOBoard
+from boards.servoboard import ServoBoard
 from canids import CANIDS
+import can_utils as can_utils
 
 @dataclasses.dataclass
 class GamepadUpdateData:
@@ -324,41 +327,24 @@ class RampFilter:
 
 def can_alive_thread():
     while True:
-        msg = can.Message(arbitration_id=CANIDS.CANID_RASPI_ALIVE)
-        bus.send(msg)
+        msg = can.Message(arbitration_id=CANIDS.CANID_RASPI_ALIVE, is_extended_id=False)
+        can_utils.send(bus, msg)
         time.sleep(1)
 
 def can_read_thread():
     while True:
         for msg in bus:
-            if msg.arbitration_id == CANIDS.CANID_MOTOR_ALIVE:
-                first_alive_since_reboot = struct.unpack(">?", msg.data)
-                print(f"[CAN] MotorBoard IsAlive first_alive_since_reboot:{first_alive_since_reboot}")
-
-            elif msg.arbitration_id == CANIDS.CANID_MOTOR_STATUS:
-                enc_left, enc_right, timeout_remaining = struct.unpack(">HHh", msg.data)
+            if msg.arbitration_id == CANIDS.CANID_MOTOR_STATUS:
+                state_error, enc_left, enc_right = struct.unpack(">?HH", msg.data)
                 encoder_left.update(enc_left)
                 encoder_right.update(enc_right)
                 odometry.update(encoder_left.get(), -encoder_right.get())
-                # send_telemetry("timeout_remaining", timeout_remaining)
 
             elif msg.arbitration_id == CANIDS.CANID_MOTOR_STATE_ERROR:
-                print(f"STATE_ERROR")
-            
+                print(f"MOTORBOARD STATE_ERROR")
+
             elif msg.is_error_frame:
                 print("CAN ERROR FRAME:", msg)
-
-def get_can_interface(preferred_interface = ('can0', 'vcan0'), bitrate: int = 1000000):
-    for chan in preferred_interface:
-        try:
-            bus = SocketcanBus(channel=chan, bitrate=bitrate, local_loopback=False)
-            print(f"found SocketCAN interface: {bus}")
-            return bus
-        except Exception as e:
-            print(e)
-            pass
-    print("No SocketCAN interface found")
-    quit()
 
 def watch_gpios_thread(chip_path: str = "/dev/gpiochip0", line_offsets: tuple = (5, 6)):
     with gpiod.request_lines(
@@ -374,7 +360,10 @@ CONTROL_LOOP_PERIOD = 1/200
 WHEEL_PERIMETER = 52.42 * math.pi  # diameter in mm
 WHEEL_SPACING = 258.5 # in mm
 
-bus = get_can_interface()
+bus = can_utils.get_can_interface()
+ioboard = IOBoard(bus)
+motorboard = MotorBoard(bus)
+servoboard = ServoBoard(bus)
 
 encoder_left = HallEncoder()
 encoder_right = HallEncoder()
@@ -437,23 +426,25 @@ def main():
 
     last_elapsed_time = 0.0
 
+    led_pattern_id = 0
+    servo8_angle = 0
+    servo15_angle = 0
+    
+
     while True:
         start_time = time.monotonic()
 
         gp = gamepad.update()
 
         if evdev.ecodes.BTN_START in gp.keys_pressed:
+            print("let's reset all errors!")
+
             # because we totally disabled the gc, let's collect it now before we restart the critical application
             gc.collect()
 
-            print("sent error reset")
-            
-            msg = can.Message(arbitration_id=CANIDS.CANID_MOTOR_RESET_STATE_ERROR)
-            try:
-                bus.send(msg)
-            except can.exceptions.CanError as e:
-                print(e)
-            
+            servoboard.enable_power(False, True, True)
+
+            motorboard.reset_error()
             encoder_left.reset()
             encoder_right.reset()
             odometry.reset()
@@ -461,8 +452,9 @@ def main():
             pid_theta.reset()
         
         elif evdev.ecodes.BTN_SELECT in gp.keys_pressed:
-            print("sleeping a little bit to trigger motorboard error")
-            time.sleep(CONTROL_LOOP_PERIOD*2)     
+            print("ok let's go to error mode")
+            time.sleep(CONTROL_LOOP_PERIOD*2)
+            servoboard.enable_power(False, False, False)
 
         gp_theta = -gp.x * 130 # deg/s
         gp_speed = (gp.rz - gp.z) * 400 # mm/s
@@ -471,6 +463,30 @@ def main():
         if evdev.ecodes.BTN_Y in gp.keys_active:
             gp_theta = -gp.x * 180
             gp_speed = (gp.rz - gp.z) * 800
+        
+        if evdev.ecodes.BTN_DPAD_DOWN in gp.keys_pressed:
+            print("setting led pattern:", led_pattern_id)
+            for i in range(4):
+                servoboard.set_led_pattern(i, led_pattern_id)
+            led_pattern_id += 1
+            if led_pattern_id >= 7:
+                led_pattern_id = 0
+        
+        if evdev.ecodes.BTN_A in gp.keys_pressed:
+            print("write servo angle:", servo8_angle)
+            servoboard.servo_write_angle(8, servo8_angle)
+            servoboard.servo_write_angle(9, servo8_angle)
+            servoboard.servo_write_angle(15, servo15_angle)
+
+            if servo8_angle == 0:
+                servo8_angle = 180
+            else:
+                servo8_angle = 0
+
+            if servo15_angle == 0:
+                servo15_angle = 270
+            else:
+                servo15_angle = 0
 
         gp_theta = limit_ramp_theta.update(gp_theta)
         gp_speed = limit_ramp_dist.update(gp_speed)
@@ -486,24 +502,8 @@ def main():
 
         pwm_right = int(pwm_right)
         pwm_left = int(pwm_left)
-
-        # clamp values to signed 16 bit signed integer
-        if pwm_right > 32767:
-            pwm_right = 32767;
-        elif pwm_right < -32768:
-            pwm_right = -32768;
         
-        if pwm_left > 32767:
-            pwm_left = 32767;
-        elif pwm_left < -32768:
-            pwm_left = -32768;
-
-        data = bytearray(struct.pack(">hh", pwm_right, pwm_left))
-        msg = can.Message(arbitration_id=CANIDS.CANID_MOTOR_SETPOINT, data=data)
-        try:
-            bus.send(msg)
-        except can.exceptions.CanError as e:
-            print(e)
+        motorboard.pwm_write(pwm_right, pwm_left)
 
         # send_telemetry("vel_theta", odometry.get_velocity_theta())
         # send_telemetry("err_theta", err_theta)

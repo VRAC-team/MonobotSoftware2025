@@ -20,7 +20,7 @@ motorboard = MotorBoard(bus)
 
 CONTROL_LOOP_PERIOD = 1/200
 
-class MotorBoardTests(can_test_utils.CanBusTestCase):
+class MotorBoardIntegrationTests(can_test_utils.CanBusTestCase):
     @classmethod
     def get_can_silent_ids(cls):
         return {
@@ -32,13 +32,13 @@ class MotorBoardTests(can_test_utils.CanBusTestCase):
     def setUpClass(cls):
         super().setUpClass()
 
-    def test_00_reboot_and_alive(self):
-        motorboard.reboot()
+    def test_01_reboot_and_alive(self):
+        self.assertTrue(motorboard.reboot())
         self.assertCanMessageReceived([CANIDS.CANID_MOTOR_ALIVE], [True], timeout=2)
         self.assertCanMessageReceived([CANIDS.CANID_MOTOR_ALIVE], [False], timeout=2)
         
-    def test_01_reboot_and_error(self):
-        motorboard.reboot()
+    def test_02_reboot_and_error(self):
+        self.assertTrue(motorboard.reboot())
         self.assertCanMessageReceived([CANIDS.CANID_MOTOR_STATE_ERROR], timeout=0.5)
 
     def test_03_status_error(self):
@@ -48,15 +48,14 @@ class MotorBoardTests(can_test_utils.CanBusTestCase):
     def test_04_pwm_write_valid(self):
         self.assertCanMessageReceived([CANIDS.CANID_MOTOR_STATUS], [True], timeout=0.5)
 
-        motorboard.reset_error()
+        self.assertTrue(motorboard.reset_error())
         for i in range(200):
             start_time = time.monotonic()
             
-            motorboard.pwm_write(0, 0)
+            self.assertTrue(motorboard.pwm_write(0, 0))
             self.assertCanMessageReceived([CANIDS.CANID_MOTOR_STATUS], [False], timeout=0.5)
 
             elapsed_time = time.monotonic() - start_time
-            last_elapsed_time = elapsed_time * 1000.0
             timeout = max(0, CONTROL_LOOP_PERIOD - elapsed_time)
             select.select([], [], [], timeout)
         
@@ -68,14 +67,19 @@ class MotorBoardTests(can_test_utils.CanBusTestCase):
 
     def test_05_reset_error_invalid(self):
         self.assertCanMessageReceived([CANIDS.CANID_MOTOR_STATUS], [True], timeout=0.5)
-        motorboard.reset_error()
+        self.assertTrue(motorboard.reset_error())
         # here we do not send the PWM_WRITE, we should not receive MOTOR_STATUS with state_error=False
         self.assertCanMessageNotReceived([CANIDS.CANID_MOTOR_STATUS], [False], timeout=1)
 
 
 if __name__ == '__main__':
-    MotorBoardTests.bus = bus
-    suite = unittest.TestLoader().loadTestsFromTestCase(MotorBoardTests)
+    MotorBoardIntegrationTests.bus = bus
+
     runner = can_test_utils.CustomRunner()
-    runner.run(suite)
+
+    integration_tests = unittest.TestLoader().loadTestsFromTestCase(MotorBoardIntegrationTests)
+    runner.run(integration_tests)
+
+    motorboard.reboot()
+
     bus.shutdown()
