@@ -15,15 +15,15 @@ Servo g_servos[4];
 const uint32_t LEDS_REFRESH_PERIOD_MS = 10;
 #define LEDS_COUNT 35
 #define LEDS_BRIGHTNESS 96
-enum LED_PATTERN {
-    NONE = 0,
-    RAINBOW = 1, // FastLED's built-in rainbow generator
-    RAINBOW_WITH_GLITTER = 2, // built-in FastLED rainbow, plus some random sparkly glitter
-    CONFETTI = 3, // random colored speckles that blink in and fade smoothly
-    SINELON = 4, // a colored dot sweeping back and forth, with fading trails
-    BPM = 5, // colored stripes pulsing at a defined Beats-Per-Minute (BPM)
-    JUGGLE = 6, // eight colored dots, weaving in and out of sync with each other
-    LED_PATTERN_COUNT
+enum LED_PATTERN : uint8_t {
+    RAINBOW = 0, // FastLED's built-in rainbow generator
+    RAINBOW_WITH_GLITTER = 1, // built-in FastLED rainbow, plus some random sparkly glitter
+    CONFETTI = 2, // random colored speckles that blink in and fade smoothly
+    SINELON = 3, // a colored dot sweeping back and forth, with fading trails
+    BPM = 4, // colored stripes pulsing at a defined Beats-Per-Minute (BPM)
+    JUGGLE = 5, // eight colored dots, weaving in and out of sync with each other
+    
+    NONE = 255 // any invalid pattern is equivalent to NONE
 };
 enum LED_PATTERN g_led_pattern[4] = { NONE, NONE, NONE, NONE };
 CRGB g_leds[4][LEDS_COUNT];
@@ -42,11 +42,6 @@ void i2c_write_callback(int length)
 {
     uint8_t id = Wire.read();
 
-    // Serial.print("recv i2c write id:");
-    // Serial.print(id);
-    // Serial.print(" length:");
-    // Serial.print(length);
-
     if (id >= 0 && id <= 3) {
         if (length != 2) {
             i2c_flush();
@@ -54,32 +49,8 @@ void i2c_write_callback(int length)
         }
 
         uint8_t led_pattern = Wire.read();
-
-        // check if the pattern is valid
-        if (led_pattern >= LED_PATTERN_COUNT) {
-            led_pattern = NONE;
-        }
-
         g_led_pattern[id] = (enum LED_PATTERN)led_pattern;
     }
-
-    // else if (id >= 17 || id <= 20) {
-    //   if (length != 3) {
-    //     i2c_flush();
-    //     return;
-    //   }
-
-    //   uint8_t data1 = Wire.read();
-    //   uint8_t data2 = Wire.read();
-    //   uint16_t angle = (data1 << 8) | (data2);
-
-    //   if (angle > 270) {
-    //     angle = 270;
-    //   }
-
-    //   uint16_t angle_us = map(angle, 0, 270, SERVO_US_MIN, SERVO_US_MAX);
-    //   g_servos[id-17].writeMicroseconds(angle_us);
-    // }
 }
 
 void setup()
@@ -96,29 +67,16 @@ void setup()
     FastLED.addLeds<WS2812, GPIO_LED4, GRB>(g_leds[3], LEDS_COUNT).setCorrection(TypicalLEDStrip);
     FastLED.setBrightness(LEDS_BRIGHTNESS);
 
-    // if the robot need more than 16 servos, re can repurpose leds as servo
-    // servo setup
-    // g_servos[0].attach(GPIO_LED1, SERVO_US_MIN, SERVO_US_MAX);
-    // g_servos[1].attach(GPIO_LED2, SERVO_US_MIN, SERVO_US_MAX);
-    // setvo default positions
-    // g_servos[0].writeMicroseconds( map(80, 0, 270, SERVO_US_MIN, SERVO_US_MAX));
-    // g_servos[1].writeMicroseconds( map(1, 0, 270, SERVO_US_MIN, SERVO_US_MAX));
-
-    Serial.begin(115200);
-    Serial.print("starting servoboard_arduino build:");
-    Serial.print(__DATE__);
-    Serial.print(" time:");
-    Serial.println(__TIME__);
+    // Serial.begin(115200);
+    // Serial.print("starting servoboard_arduino build:");
+    // Serial.print(__DATE__);
+    // Serial.print(" time:");
+    // Serial.println(__TIME__);
 }
 
 void update_leds_pattern(CRGB* leds, uint16_t leds_count, enum LED_PATTERN pattern)
 {
     switch (pattern) {
-    case NONE: {
-        fill_solid(leds, leds_count, CRGB::Black);
-        break;
-    }
-
     case RAINBOW: {
         fill_rainbow(leds, leds_count, g_leds_hue, 7);
         break;
@@ -175,7 +133,7 @@ void update_leds_pattern(CRGB* leds, uint16_t leds_count, enum LED_PATTERN patte
 
 void loop()
 {
-    if (millis() - g_last_time_blink > 500) {
+    if (millis() - g_last_time_blink > 50) {
         digitalWrite(LED_BUILTIN, !digitalRead(LED_BUILTIN));
         g_last_time_blink = millis();
     }
@@ -188,11 +146,4 @@ void loop()
         FastLED.show();
     }
     EVERY_N_MILLISECONDS(20) { g_leds_hue++; }
-
-    // EVERY_N_SECONDS(10) {
-    //   g_led_pattern = (enum LED_PATTERN)(g_led_pattern + 1);
-    //   if (g_led_pattern == LED_PATTERN_COUNT) {
-    //     g_led_pattern = RAINBOW;
-    //   }
-    // }
 }

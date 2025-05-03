@@ -75,10 +75,10 @@ public:
     }
 
     void reset_all_leds() {
-        set_led_pattern(0, 0);
-        set_led_pattern(1, 0);
-        set_led_pattern(2, 0);
-        set_led_pattern(3, 0);
+        set_led_pattern(0, 255);
+        set_led_pattern(1, 255);
+        set_led_pattern(2, 255);
+        set_led_pattern(3, 255);
     }
 
     bool set_led_pattern(uint8_t id, uint8_t pattern) {
@@ -114,8 +114,7 @@ int main()
     power2_oe::reset();
     power3_oe::reset();
 
-    // let's wait for the arduino nano to boot, because I didn't found non blocking i2c read/write on modm
-    // yes arduino is that slow to boot and be ready for i2c
+    // let's wait for the arduino nano bootleader to wake up
     modm::delay_ms(3000);
 
     Adc1::initialize(Adc1::ClockMode::SynchronousPrescaler1, Adc1::ClockSource::SystemClock, Adc1::Prescaler::Disabled, Adc1::CalibrationMode::SingleEndedInputsMode, true);
