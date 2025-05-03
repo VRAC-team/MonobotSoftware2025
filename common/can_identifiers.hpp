@@ -5,27 +5,28 @@
 #define CANID_MOTOR_REBOOT 0x000
 // reboot the board
 
-#define CANID_MOTOR_SETPOINT 0x001
-// this must be sent periodically at 200Hz, if the motorboard doesn't receive a setpoint in 10ms then it will change state to error
-// <i16 pwm_right> <i16 pwm_left>
+#define CANID_MOTOR_STATE_ERROR 0x001
+// sent by motorboard when no PWM_WRITE is received for 10ms
 
-#define CANID_MOTOR_SETPOINT_RESPONSE 0x002
-// sent by motorboard in response to setpoint
-// <u16 enc1> <u16 enc2> <i16 us_since_last_setpoint>
+#define CANID_MOTOR_PWM_WRITE 0x002
+// must be sent periodically at 200Hz, if the motorboard doesn't receive a PWM_WRITE for 10ms then it will change state to ERROR
+// <i16 pwm_right>
+// <i16 pwm_left>
 
-#define CANID_MOTOR_SETPOINT_ERROR 0x003
-// sent by motorboard when no setpoint received on the last 10ms
+#define CANID_MOTOR_STATUS 0x003
+// sent by motorboard
+// if the state is nominal, then it will sent immediately after received the PWM_WRITE (this can be used to measure latency)
+// if the state is in error, then it will be sent periodically at 200Hz
+// <u8 state_error(bool)>
+// <u16 enc1>
+// <u16 enc2>
 
-#define CANID_MOTOR_RESET_SETPOINT_ERROR 0x004
-// reset setpoint error, next setpoint must be sent in less than 10ms or else it will change state to error
-
-#define CANID_MOTOR_STATUS 0x0EE
-// sent periodically by motorboard
-// <u16 motor1_adc> <u16 motor2_adc>
+#define CANID_MOTOR_RESET_STATE_ERROR 0x004
+// reset error, next PWM_WRITE must be sent in less than 10ms or else it will change state to ERROR
 
 #define CANID_MOTOR_ALIVE 0x0FF
 // sent periodically by motorboard
-// <u8 first_alive_since_reboot(bool)> <u8 is_state_in_error(bool)>
+// <u8 first_alive_since_reboot(bool)>
 
 
 

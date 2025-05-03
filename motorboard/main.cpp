@@ -95,6 +95,22 @@ struct SystemClock {
     }
 };
 
+void send_status(bool state_error) {
+    enc1.read();
+    enc2.read();
+    uint16_t enc1_data_raw = enc1_data.data & 0x3FFF;
+    uint16_t enc2_data_raw = enc2_data.data & 0x3FFF;
+
+    modm::can::Message status(CANID_MOTOR_STATUS, 5);
+    status.setExtended(false);
+    status.data[0] = state_error;
+    status.data[1] = enc1_data_raw >> 8;
+    status.data[2] = enc1_data_raw & 0xFF;
+    status.data[3] = enc2_data_raw >> 8;
+    status.data[4] = enc2_data_raw & 0xFF;
+    Can1::sendMessage(status);
+}
+
 int main()
 {
     SystemClock::enable();
@@ -141,23 +157,29 @@ int main()
     CanFilter::setFilter(0, CanFilter::FIFO0, CanFilter::StandardIdentifier(0), CanFilter::StandardFilterMask(0x700));
     Can1::setAutomaticRetransmission(true);
 
-    uint16_t timer_overflow = Timer1::getOverflow();
-    bool setpoint_error = true;
-    modm::PreciseTimeout setpoint_error_timeout { 10ms };
-    setpoint_error_timeout.stop();
+    const uint16_t timer1_overflow = Timer1::getOverflow();
 
-    modm::PeriodicTimer blinker { 50ms };
+    bool state_error = true;
+    const std::chrono::milliseconds state_error_interval = 10ms;
+    modm::PreciseTimeout timeout_state_error { state_error_interval };
 
-    bool first_can_alive = true;
-    modm::PeriodicTimer can_alive_timer { 1s };
+    const std::chrono::milliseconds blinker_interval_error = 200ms;
+    const std::chrono::milliseconds blinker_interval_nominal = 50ms;
+    modm::PeriodicTimer timer_blinker { blinker_interval_error };
+
+    bool first_alive_since_reboot = true;
+    modm::PeriodicTimer timer_can_alive { 1s };
+    
+    const std::chrono::milliseconds timer_status_interval = 5ms;
+    modm::PeriodicTimer timer_status { timer_status_interval };
 
     while (true) {
-        if (blinker.execute()) {
+        if (timer_blinker.execute()) {
             Board::LedD13::toggle();
         }
 
-        if (setpoint_error_timeout.execute()) {
-            setpoint_error = true;
+        if (timeout_state_error.execute()) {
+            state_error = true;
             M1_en::reset();
             M2_en::reset();
             M1_in1::reset();
@@ -167,22 +189,26 @@ int main()
             Timer1::setCompareValue<M1_pwm::Ch1>(0);
             Timer1::setCompareValue<M2_pwm::Ch2>(0);
 
-            blinker.restart(50ms);
+            timer_blinker.restart(blinker_interval_error);
+            timer_status.restart(timer_status_interval);
 
-            modm::can::Message msg(CANID_MOTOR_SETPOINT_ERROR, 0);
+            modm::can::Message msg(CANID_MOTOR_STATE_ERROR, 0);
             msg.setExtended(false);
             Can1::sendMessage(msg);
         }
 
-        if (can_alive_timer.execute()) {
+        if (timer_status.execute()) {
+            send_status(state_error);
+        }
 
-            modm::can::Message alive(CANID_MOTOR_ALIVE, 2);
+        if (timer_can_alive.execute()) {
+
+            modm::can::Message alive(CANID_MOTOR_ALIVE, 1);
             alive.setExtended(false);
-            alive.data[0] = first_can_alive;
-            alive.data[1] = setpoint_error;
+            alive.data[0] = first_alive_since_reboot;
             Can1::sendMessage(alive);
 
-            first_can_alive = false;
+            first_alive_since_reboot = false;
         }
 
         if (!Can1::isMessageAvailable()) {
@@ -197,9 +223,12 @@ int main()
             NVIC_SystemReset();
         }
 
-        else if (message.identifier == CANID_MOTOR_SETPOINT && message.length == 4) {
-            if (setpoint_error)
+        else if (message.identifier == CANID_MOTOR_PWM_WRITE && message.length == 4) {
+            if (state_error) {
+                // silently fail here
                 continue;
+            }
+                
 
             int16_t pwm_right = (message.data[0] << 8) | message.data[1];
             int16_t pwm_left = (message.data[2] << 8) | message.data[3];
@@ -213,11 +242,11 @@ int main()
             } else if (pwm_right > 0) {
                 M1_in1::set();
                 M1_in2::reset();
-                right_timer_cmp = pwm_right * timer_overflow / SHRT_MAX;
+                right_timer_cmp = pwm_right * timer1_overflow / SHRT_MAX;
             } else {
                 M1_in1::reset();
                 M1_in2::set();
-                right_timer_cmp = -pwm_right * timer_overflow / -SHRT_MIN;
+                right_timer_cmp = -pwm_right * timer1_overflow / -SHRT_MIN;
             }
 
             if (pwm_left == 0) {
@@ -226,41 +255,28 @@ int main()
             } else if (pwm_left > 0) {
                 M2_in1::set();
                 M2_in2::reset();
-                left_timer_cmp = pwm_left * timer_overflow / SHRT_MAX;
+                left_timer_cmp = pwm_left * timer1_overflow / SHRT_MAX;
             } else {
                 M2_in1::reset();
                 M2_in2::set();
-                left_timer_cmp = -pwm_left * timer_overflow / -SHRT_MIN;
+                left_timer_cmp = -pwm_left * timer1_overflow / -SHRT_MIN;
             }
 
             Timer1::setCompareValue<M1_pwm::Ch1>(right_timer_cmp);
             Timer1::setCompareValue<M2_pwm::Ch2>(left_timer_cmp);
 
-            enc1.read();
-            enc2.read();
-            uint16_t enc1_data_raw = enc1_data.data & 0x3FFF;
-            uint16_t enc2_data_raw = enc2_data.data & 0x3FFF;
+            send_status(false);
 
-            int32_t dur = setpoint_error_timeout.remaining().count();
-            setpoint_error_timeout.restart(10ms);
-
-            modm::can::Message response(CANID_MOTOR_STATUS, 6);
-            response.setExtended(false);
-            response.data[0] = enc1_data_raw >> 8;
-            response.data[1] = enc1_data_raw & 0xFF;
-            response.data[2] = enc2_data_raw >> 8;
-            response.data[3] = enc2_data_raw & 0xFF;
-            response.data[4] = dur >> 8 & 0xFF;
-            response.data[5] = dur & 0xFF;
-            Can1::sendMessage(response);
+            timeout_state_error.restart(state_error_interval);
         }
 
-        else if (message.identifier == CANID_MOTOR_RESET_SETPOINT_ERROR && message.length == 0) {
-            setpoint_error = false;
-            blinker.restart(1s);
+        else if (message.identifier == CANID_MOTOR_RESET_STATE_ERROR && message.length == 0) {
+            state_error = false;
             M1_en::set();
             M2_en::set();
-            setpoint_error_timeout.restart(10ms);
+            timer_status.stop();
+            timeout_state_error.restart(state_error_interval);
+            timer_blinker.restart(blinker_interval_nominal);
         }
     }
 
