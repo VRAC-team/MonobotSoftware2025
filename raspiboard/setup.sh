@@ -1,9 +1,6 @@
 #!/bin/bash
 set -ex
 
-# add manually these arguments to /boot/firmware/cmdline.txt and reboot
-# isolcpus=3
-
 # enable can0
 sudo ip link set can0 down
 sudo ip link set can0 type can bitrate 1000000 loopback off restart-ms 100
