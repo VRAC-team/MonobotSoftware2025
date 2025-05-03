@@ -332,8 +332,8 @@ def can_read_thread():
     while True:
         for msg in bus:
             if msg.arbitration_id == CANIDS.CANID_MOTOR_ALIVE:
-                first_alive_since_reboot, error = struct.unpack(">??", msg.data)
-                print(f"[CAN] MotorBoard IsAlive error:{error}")
+                first_alive_since_reboot = struct.unpack(">?", msg.data)
+                print(f"[CAN] MotorBoard IsAlive first_alive_since_reboot:{first_alive_since_reboot}")
 
             elif msg.arbitration_id == CANIDS.CANID_MOTOR_STATUS:
                 enc_left, enc_right, timeout_remaining = struct.unpack(">HHh", msg.data)
@@ -342,9 +342,8 @@ def can_read_thread():
                 odometry.update(encoder_left.get(), -encoder_right.get())
                 # send_telemetry("timeout_remaining", timeout_remaining)
 
-            elif msg.arbitration_id == CANIDS.CANID_MOTOR_SETPOINT_ERROR:
-                timeout_remaining = struct.unpack(">i", msg.data)
-                print(f"SETPOINT ERROR! timeout_remaining:{timeout_remaining}")
+            elif msg.arbitration_id == CANIDS.CANID_MOTOR_STATE_ERROR:
+                print(f"STATE_ERROR")
             
             elif msg.is_error_frame:
                 print("CAN ERROR FRAME:", msg)
@@ -405,8 +404,6 @@ def setup_realtime():
     # use CPU3 (isolcpus=3 in the kernel boot parameters)
     os.sched_setaffinity(0, {3})
 
-    # sudo setcap cap_sys_nice+ep /usr/bin/python3.12
-    # getcap /usr/bin/python3.12
     try:
         os.sched_setscheduler(0, os.SCHED_FIFO, os.sched_param(10)) 
     except PermissionError:
@@ -451,7 +448,7 @@ def main():
 
             print("sent error reset")
             
-            msg = can.Message(arbitration_id=CANIDS.CANID_MOTOR_RESET_SETPOINT_ERROR)
+            msg = can.Message(arbitration_id=CANIDS.CANID_MOTOR_RESET_STATE_ERROR)
             try:
                 bus.send(msg)
             except can.exceptions.CanError as e:
