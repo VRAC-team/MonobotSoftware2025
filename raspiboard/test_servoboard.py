@@ -39,16 +39,16 @@ class ServoBoardTests(can_test_utils.CanBusTestCase):
     def test_00_reboot(self):
         servoboard.reboot()
         time.sleep(4) # servoboard has 3s wait at startup
-        self.assertCanIdReceived([CANIDS.CANID_SERVO_ALIVE], [True], timeout=2)
-        self.assertCanIdReceived([CANIDS.CANID_SERVO_ALIVE], [False], timeout=2)
+        self.assertCanMessageReceived([CANIDS.CANID_SERVO_ALIVE], [True], timeout=2)
+        self.assertCanMessageReceived([CANIDS.CANID_SERVO_ALIVE], [False], timeout=2)
 
     def test_01_alive(self):
         for i in range(3):
-            self.assertCanIdReceived([CANIDS.CANID_SERVO_ALIVE], timeout=2)
+            self.assertCanMessageReceived([CANIDS.CANID_SERVO_ALIVE], timeout=2)
 
     def test_02_status(self):
         for i in range(3):
-            self.assertCanIdReceived([CANIDS.CANID_SERVO_STATUS], timeout=2)
+            self.assertCanMessageReceived([CANIDS.CANID_SERVO_STATUS], timeout=2)
 
     def test_03_enable_power_none(self):
         servoboard.enable_power(False, False, False)
@@ -72,7 +72,7 @@ class ServoBoardTests(can_test_utils.CanBusTestCase):
             )
             msg = can.Message(arbitration_id=CANIDS.CANID_SERVO_WRITE_US, data=data, is_extended_id=False)
             self.bus.send(msg)
-            self.assertCanIdReceived([CANIDS.CANID_SERVO_ERROR_INVALID_PARAMS], timeout=1)
+            self.assertCanMessageReceived([CANIDS.CANID_SERVO_ERROR_INVALID_PARAMS], timeout=1)
 
     def test_07_servo_write_us_invalid_pulse(self):
         servo_id = 0
@@ -83,7 +83,7 @@ class ServoBoardTests(can_test_utils.CanBusTestCase):
             )
             msg = can.Message(arbitration_id=CANIDS.CANID_SERVO_WRITE_US, data=data, is_extended_id=False)
             self.bus.send(msg)
-            self.assertCanIdReceived([CANIDS.CANID_SERVO_ERROR_INVALID_PARAMS], timeout=1)
+            self.assertCanMessageReceived([CANIDS.CANID_SERVO_ERROR_INVALID_PARAMS], timeout=1)
 
     def test_08_set_led_pattern_valid(self):
         for pattern in range(8):
@@ -101,7 +101,7 @@ class ServoBoardTests(can_test_utils.CanBusTestCase):
             )
             msg = can.Message(arbitration_id=CANIDS.CANID_SERVO_SET_LED_PATTERN, data=data, is_extended_id=False)
             self.bus.send(msg)
-            self.assertCanIdReceived([CANIDS.CANID_SERVO_ERROR_INVALID_PARAMS], timeout=1)
+            self.assertCanMessageReceived([CANIDS.CANID_SERVO_ERROR_INVALID_PARAMS], timeout=1)
 
     def test_10_set_led_pattern_invalid_pattern(self):
         servoboard.set_led_pattern(led_id=0, led_pattern=200)  # Should silently do nothing
@@ -111,20 +111,20 @@ class ServoBoardTests(can_test_utils.CanBusTestCase):
         servoboard.enable_power(False, True, True)
         for servo_id in range(8):
             servoboard.servo_write_us(servo_id=servo_id, servo_us=2000)
-            self.assertCanIdReceived([CANIDS.CANID_SERVO_ERROR_NOT_ENABLED], timeout=1)
+            self.assertCanMessageReceived([CANIDS.CANID_SERVO_ERROR_NOT_ENABLED], timeout=1)
 
         # disabling power for servos 8-15
         servoboard.enable_power(True, False, True)
         for servo_id in range(8, 16):
             servoboard.servo_write_us(servo_id=servo_id, servo_us=2000)
-            self.assertCanIdReceived([CANIDS.CANID_SERVO_ERROR_NOT_ENABLED], timeout=1)
+            self.assertCanMessageReceived([CANIDS.CANID_SERVO_ERROR_NOT_ENABLED], timeout=1)
 
     def test_12_set_led_pattern_error_not_enabled(self):
         # disabling power for leds
         servoboard.enable_power(True, True, False)
         for led_id in range(4):
             servoboard.set_led_pattern(led_id=led_id, led_pattern=2)
-            self.assertCanIdReceived([CANIDS.CANID_SERVO_ERROR_NOT_ENABLED], timeout=1)
+            self.assertCanMessageReceived([CANIDS.CANID_SERVO_ERROR_NOT_ENABLED], timeout=1)
 
 if __name__ == '__main__':
     ServoBoardTests.bus = bus
