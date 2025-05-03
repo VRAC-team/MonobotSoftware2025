@@ -25,14 +25,15 @@ TOR_ID = 15
 TOR_STATE_TO_END_HOMING = False
 
 class IOBoardTests(can_test_utils.CanBusTestCase):
-    silent_can_ids = {
-        CANIDS.CANID_IO_STATUS,
-        CANIDS.CANID_IO_ALIVE
-    }
+    @classmethod
+    def get_can_silent_ids(cls):
+        return {
+            CANIDS.CANID_IO_STATUS,
+            CANIDS.CANID_IO_ALIVE
+        }
 
     @classmethod
     def setUpClass(cls):
-        cls.bus = bus
         super().setUpClass()
     
     @classmethod
@@ -243,6 +244,7 @@ class IOBoardTests(can_test_utils.CanBusTestCase):
         self.assertCanIdReceived([CANIDS.CANID_IO_STEPPER_ERROR_INVALID_PARAMS])
 
 if __name__ == '__main__':
+    IOBoardTests.bus = bus
     suite = unittest.TestLoader().loadTestsFromTestCase(IOBoardTests)
     runner = can_test_utils.CustomRunner()
     runner.run(suite)

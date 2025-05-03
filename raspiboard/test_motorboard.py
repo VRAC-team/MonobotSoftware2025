@@ -17,15 +17,18 @@ bus.set_filters([{
 }])
 motorboard = MotorBoard(bus)
 
+CONTROL_LOOP_PERIOD = 1/200
+
 class MotorBoardTests(can_test_utils.CanBusTestCase):
-    silent_can_ids = {
-        CANIDS.CANID_MOTOR_STATUS,
-        CANIDS.CANID_MOTOR_ALIVE
-    }
+    @classmethod
+    def get_can_silent_ids(cls):
+        return {
+            CANIDS.CANID_MOTOR_STATUS,
+            CANIDS.CANID_MOTOR_ALIVE
+        }
 
     @classmethod
     def setUpClass(cls):
-        cls.bus = bus
         super().setUpClass()
 
     def test_00_reboot(self):
@@ -44,6 +47,7 @@ class MotorBoardTests(can_test_utils.CanBusTestCase):
 
 
 if __name__ == '__main__':
+    MotorBoardTests.bus = bus
     suite = unittest.TestLoader().loadTestsFromTestCase(MotorBoardTests)
     runner = can_test_utils.CustomRunner()
     runner.run(suite)

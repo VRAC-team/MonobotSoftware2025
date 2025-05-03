@@ -5,7 +5,6 @@ import threading
 from canids import CANIDS
 from colorama import Fore, Style
 import can
-import can_utils
 
 class CustomTestResult(unittest.TextTestResult):
     def startTestRun(self):
@@ -43,69 +42,119 @@ class CustomRunner(unittest.TextTestRunner):
         super().__init__(resultclass=CustomTestResult, **kwargs)
 
 class CanBusTestCase(unittest.TestCase):
-    silent_can_ids: set[int] = set()
+    @classmethod
+    def get_can_silent_ids(cls) -> set[int]:
+        return set()
 
     @classmethod
     def setUpClass(cls):
-        # maybe enforce here a verification that cls.bus is set ?
-        cls.can_queue = queue.Queue()
-        cls.can_thread_running = True
-        cls.can_thread = threading.Thread(target=cls._can_read_loop, daemon=True)
-        cls.can_thread.start()
+        if cls.bus is None:
+            raise RuntimeError("CanBusTestCase.bus must be set before setUpClass() is called.")
+        cls.can_silent_ids = cls.get_can_silent_ids()
 
-    @classmethod
-    def tearDownClass(cls):
-        cls.can_thread_running = False
-        cls.can_thread.join(timeout=2)
+    def setUp(self):
+        # before each test_
+        self.flushCanMessages()
 
-    @classmethod
-    def _can_read_loop(cls):
-        try:
-            while cls.can_thread_running:
-                for msg in cls.bus:
-                    if msg.is_error_frame:
-                        print("CAN ERROR >", msg)
-                    elif msg.arbitration_id not in cls.silent_can_ids:
-                        frame_name = CANIDS.get_name(msg.arbitration_id)
-                        print("CAN FRAME > ", frame_name, " : ", msg)
-                    else:
-                        # CAN FRAME silenced
-                        pass
+    def tearDown(self):
+        # after each test_
+        time.sleep(0.1)
 
-                    cls.can_queue.put(msg)
-        except can.exceptions.CanOperationError as e:
-            print(e)
+    def flushCanMessages(self):
+        counter = 0
+        while self.bus.recv(timeout=0):
+            counter += 1
+            pass
+        print(f"flushed {counter} can messages")
 
-    def assertCanIdReceived(
+    def assertNextCanMessageIs(
         self,
         expected_can_id: list[int],
         expected_can_data: bytes | list[int] | None = None,
-        timeout: float = 30
+        timeout: float = 5
     ) -> bool:
         deadline = time.time() + timeout
 
-        while time.time() < deadline:
-            if not self.can_queue.empty():
-                msg = self.can_queue.get(timeout=timeout)
+        expected_data = (
+            bytes(expected_can_data)
+            if isinstance(expected_can_data, list)
+            else expected_can_data
+        )
 
-                if msg.arbitration_id in expected_can_id:
-                    if expected_can_data is None:
-                        return True
+        msg = self.bus.recv(timeout=timeout)
 
-                    if expected_can_data is not None:
-                        data = bytes(expected_can_data) if isinstance(expected_can_data, list) else expected_can_data
-                        if msg.data == data:
-                            return True
+        if msg is None:
+            self.fail(f"No CAN message received within {timeout} seconds.")
         
-        self.fail(f"CAN ID {expected_can_id} was not received within {timeout} seconds.")
+        if msg.arbitration_id not in expected_can_id:
+            self.fail(f"Received unexpected CAN ID {hex(msg.arbitration_id)}. Expected one of {list(map(hex, expected_can_id))}.")
 
-    def setUp(self):
-        # flush previous can messages
-        while not self.can_queue.empty():
-            try:
-                self.can_queue.get_nowait()
-            except queue.Empty:
-                break
+        if expected_data is not None and not msg.data.startswith(expected_data):
+            self.fail(f"Received CAN ID {hex(msg.arbitration_id)} with data {msg.data.hex()} "
+                    f"which does not start with expected data {expected_data.hex()}.")
 
-    def tearDown(self):
-        time.sleep(0.2)
+        return True
+
+    def assertCanMessageReceived(
+        self,
+        expected_can_id: list[int],
+        expected_can_data: bytes | list[int] | None = None,
+        timeout: float = 5
+    ) -> bool:
+        deadline = time.time() + timeout
+
+        expected_data = (
+            bytes(expected_can_data)
+            if isinstance(expected_can_data, list)
+            else expected_can_data
+        )
+
+        while time.time() < deadline:
+            remaining_time = max(0, deadline - time.time())
+            msg = self.bus.recv(timeout=remaining_time)
+            
+            if msg is None:
+                continue
+
+            if msg.arbitration_id in expected_can_id:
+                if expected_can_data is None or msg.data.startswith(expected_data):
+
+                    if msg.arbitration_id not in self.can_silent_ids:
+                        frame_name = CANIDS.get_name(msg.arbitration_id)
+                        print("CAN FRAME > ", frame_name, " : ", msg)
+                    
+                    return True
+
+        self.fail(f"CAN ID {expected_can_id} was not received within {timeout} seconds with {expected_can_data}.")
+
+    def assertCanMessageNotReceived(
+        self,
+        unexpected_can_id: list[int],
+        unexpected_can_data: bytes | list[int] | None = None,
+        timeout: float = 5
+    ) -> bool:
+        deadline = time.time() + timeout
+
+        expected_data = (
+            bytes(unexpected_can_data)
+            if isinstance(unexpected_can_data, list)
+            else unexpected_can_data
+        )
+
+        while time.time() < deadline:
+            remaining_time = max(0, deadline - time.time())
+            msg = self.bus.recv(timeout=remaining_time)
+            
+            if msg is None:
+                continue
+
+            if msg.arbitration_id in unexpected_can_id:
+                if expected_data is None or msg.data.startswith(expected_data):
+                    if msg.arbitration_id not in self.can_silent_ids:
+                        frame_name = CANIDS.get_name(msg.arbitration_id)
+                        print("CAN FRAME > ", frame_name, " : ", msg)
+
+                    frame_name = CANIDS.get_name(msg.arbitration_id)
+                    self.fail(f"Unexpected CAN message received: {frame_name} : {msg}")
+
+        return True

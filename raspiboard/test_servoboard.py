@@ -19,14 +19,15 @@ bus.set_filters([{
 servoboard = ServoBoard(bus)
 
 class ServoBoardTests(can_test_utils.CanBusTestCase):
-    silent_can_ids = {
-        CANIDS.CANID_SERVO_STATUS,
-        CANIDS.CANID_SERVO_ALIVE
-    }
+    @classmethod
+    def get_can_silent_ids(cls):
+        return {
+            CANIDS.CANID_SERVO_STATUS,
+            CANIDS.CANID_SERVO_ALIVE
+        }
 
     @classmethod
     def setUpClass(cls):
-        cls.bus = bus
         super().setUpClass()
 
     @classmethod
@@ -126,6 +127,7 @@ class ServoBoardTests(can_test_utils.CanBusTestCase):
             self.assertCanIdReceived([CANIDS.CANID_SERVO_ERROR_NOT_ENABLED], timeout=1)
 
 if __name__ == '__main__':
+    ServoBoardTests.bus = bus
     suite = unittest.TestLoader().loadTestsFromTestCase(ServoBoardTests)
     runner = can_test_utils.CustomRunner()
     runner.run(suite)
