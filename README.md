@@ -16,9 +16,17 @@ add `isolcpus=3` to the end of `/boot/firmware/cmdline.txt` and reboot
 if the `[all]` section of `/boot/firmware/config.txt`, add this then reboot:
 `dtoverlay=mcp2515-can0,oscillator=8000000,interrupt=25`
 
+## Raspiboard Python requirements
+
+Install requirements
 ```sh
 sudo apt install python3-pip python3-dev
-pip3 install evdev python-can gpiod
+pip3 install evdev python-can gpiod colorama pre-commit black isort
+```
+
+Run pre-commit checks manually
+```sh
+pre-commit run --all-files -v
 ```
 
 ## ESP32 S3

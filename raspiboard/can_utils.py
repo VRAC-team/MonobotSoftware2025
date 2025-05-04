@@ -1,6 +1,7 @@
 import can
 from can.interfaces.socketcan import SocketcanBus
 
+
 def send(bus: can.Bus, msg: can.Message) -> bool:
     """
     Returns:
@@ -15,10 +16,11 @@ def send(bus: can.Bus, msg: can.Message) -> bool:
     try:
         bus.send(msg)
         return True
-    except can.CanError as e:
+    except can.CanError:
         return False
 
-def get_can_interface(preferred_interface = ('can0', 'vcan0'), bitrate: int = 1000000):
+
+def get_can_interface(preferred_interface=("can0", "vcan0"), bitrate: int = 1000000):
     for chan in preferred_interface:
         try:
             bus = SocketcanBus(channel=chan, bitrate=bitrate, local_loopback=True)
