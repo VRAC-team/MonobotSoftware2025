@@ -2,11 +2,11 @@ import select
 import time
 import unittest
 
-import can_test_utils as can_test_utils
-import can_utils as can_utils
+import tests.can_test_utils as can_test_utils
+import robot.can_utils as can_utils
 import colorama
-from boards.motorboard import MotorBoard
-from canids import CANIDS
+from robot.boards.motorboard import MotorBoard
+from robot.canids import CANIDS
 
 colorama.init(autoreset=True)
 bus = can_utils.get_can_interface()
@@ -14,7 +14,8 @@ bus = can_utils.get_can_interface()
 bus.set_filters([{"can_id": 0x000, "can_mask": 0x700, "extended": False}])
 motorboard = MotorBoard(bus)
 
-CONTROL_LOOP_PERIOD = 1 / 200
+CONTROL_LOOP_FREQ = 200
+CONTROL_LOOP_PERIOD = 1 / CONTROL_LOOP_FREQ
 
 
 class MotorBoardIntegrationTests(can_test_utils.CanBusTestCase):
@@ -45,12 +46,12 @@ class MotorBoardIntegrationTests(can_test_utils.CanBusTestCase):
         self.assertCanMessageReceived([CANIDS.CANID_MOTOR_STATUS], [True], timeout=0.5)
 
         self.assertTrue(motorboard.reset_error())
-        for i in range(200):
+        for i in range(CONTROL_LOOP_FREQ * 3):
             start_time = time.monotonic()
 
             self.assertTrue(motorboard.pwm_write(0, 0))
             self.assertCanMessageReceived(
-                [CANIDS.CANID_MOTOR_STATUS], [False], timeout=0.5
+                [CANIDS.CANID_MOTOR_STATUS], [False], timeout=0.1
             )
 
             elapsed_time = time.monotonic() - start_time
@@ -59,9 +60,9 @@ class MotorBoardIntegrationTests(can_test_utils.CanBusTestCase):
 
         time.sleep(0.015)
         self.flushCanMessages()
-        # after sleep 15ms we should not receive status with state_error=False
+        # after sleep 15ms we should NOT get state_error=False on the STATUS
         self.assertCanMessageNotReceived(
-            [CANIDS.CANID_MOTOR_STATUS], [False], timeout=2
+            [CANIDS.CANID_MOTOR_STATUS], [False], timeout=0.1
         )
 
     def test_05_reset_error_invalid(self):

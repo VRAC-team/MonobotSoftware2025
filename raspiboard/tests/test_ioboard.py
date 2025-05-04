@@ -2,10 +2,10 @@ import time
 import unittest
 
 import can_test_utils as can_test_utils
-import can_utils as can_utils
+import robot.can_utils as can_utils
 import colorama
-from boards.ioboard import IOBoard
-from canids import CANIDS
+from robot.boards.ioboard import IOBoard
+from robot.canids import CANIDS
 from colorama import Fore
 
 colorama.init(autoreset=True)

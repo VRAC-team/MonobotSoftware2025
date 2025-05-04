@@ -1,11 +1,11 @@
 import time
 import unittest
-
-import can_test_utils as can_test_utils
-import can_utils as can_utils
 import colorama
-from boards.servoboard import ServoBoard, ServoConfig
-from canids import CANIDS
+
+import tests.can_test_utils as can_test_utils
+import robot.can_utils as can_utils
+from robot.boards.servoboard import ServoBoard, ServoConfig
+from robot.canids import CANIDS
 
 colorama.init(autoreset=True)
 bus = can_utils.get_can_interface()

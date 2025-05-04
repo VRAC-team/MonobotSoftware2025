@@ -2,7 +2,7 @@ import re
 from datetime import datetime
 
 HEADER_FILE = "common/can_identifiers.hpp"
-OUTPUT_FILE = "raspiboard/canids.py"
+OUTPUT_FILE = "raspiboard/robot/canids.py"
 DEFINE_PATTERN = re.compile(r"#define\s+([A-Z0-9_]+)\s+(0x[0-9A-Fa-f]+)")
 
 

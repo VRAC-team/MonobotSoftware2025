@@ -1,6 +1,6 @@
 import can
-import can_utils
-from canids import CANIDS
+import robot.can_utils as can_utils
+from robot.canids import CANIDS
 
 
 class IOBoard:

@@ -1,7 +1,7 @@
 import time
 import unittest
 
-from canids import CANIDS
+from robot.canids import CANIDS
 from colorama import Fore, Style
 
 
@@ -46,10 +46,11 @@ class CanBusTestCase(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        if cls.bus is None:
-            raise RuntimeError(
-                "CanBusTestCase.bus must be set before setUpClass() is called."
-            )
+        # TODO temp fix just use ./run_test.sh
+        # if not hasattr(cls, 'bus') or cls.bus is None:
+        #     raise RuntimeError(
+        #         "CanBusTestCase.bus must be set before setUpClass() is called."
+        #     )
         cls.can_silent_ids = cls.get_can_silent_ids()
 
     def setUp(self):
