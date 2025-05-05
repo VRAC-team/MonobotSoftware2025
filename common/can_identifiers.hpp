@@ -78,6 +78,7 @@
 
 #define CANID_IO_STEPPER_ERROR_NOT_ENABLED 0x202
 // sent by ioboard, when a new HOME or GOTO is received but the steppers are not enabled
+// <u8 stepper_id(0-4)>
 
 #define CANID_IO_STEPPER_ERROR_MOTION_IN_PROGRESS 0x203
 // sent by ioboard, when a new HOME or GOTO is received but the stepper_id is already doin HOME or GOTO
@@ -86,6 +87,7 @@
 #define CANID_IO_STEPPER_ERROR_INVALID_PARAMS 0x204
 // send by ioboard, when a new HOME or GOTO is received with invalid parameters
 // possible invalid parameters: acceleration=0, maxvelocity=0, stepper_id>5, tor_id>15
+// <u8 stepper_id(0-4)>
 
 #define CANID_IO_STEPPER_ENABLE 0x205
 // enable/disable all steppers drivers
@@ -168,6 +170,5 @@
 #define CANID_RASPI_ALIVE 0x4FF
 // sent periodically by raspiboard
 // <u8 first_alive_since_reboot(bool)>
-// <u8 error(bool)>
 
 #endif

@@ -510,8 +510,9 @@ void handle_can_messages() {
         }
 
         if (!step_en::read()) {
-            modm::can::Message err(CANID_IO_STEPPER_ERROR_NOT_ENABLED, 0);
+            modm::can::Message err(CANID_IO_STEPPER_ERROR_NOT_ENABLED, 1);
             err.setExtended(false);
+            err.data[0] = stepper_id;
             Can1::sendMessage(err);
             return;
         }
@@ -565,8 +566,9 @@ void handle_can_messages() {
         }
 
         if (!step_en::read()) {
-            modm::can::Message err(CANID_IO_STEPPER_ERROR_NOT_ENABLED, 0);
+            modm::can::Message err(CANID_IO_STEPPER_ERROR_NOT_ENABLED, 1);
             err.setExtended(false);
+            err.data[0] = stepper_id;
             Can1::sendMessage(err);
             return;
         }
