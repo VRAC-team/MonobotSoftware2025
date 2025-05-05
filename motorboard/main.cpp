@@ -168,7 +168,7 @@ int main()
     modm::PeriodicTimer timer_blinker { blinker_interval_error };
 
     bool first_alive_since_reboot = true;
-    modm::PeriodicTimer timer_can_alive { 1s };
+    modm::PeriodicTimer timer_alive { 1s };
     
     const std::chrono::milliseconds timer_status_interval = 5ms;
     modm::PeriodicTimer timer_status { timer_status_interval };
@@ -201,7 +201,7 @@ int main()
             send_status(state_error);
         }
 
-        if (timer_can_alive.execute()) {
+        if (timer_alive.execute() || first_alive_since_reboot) {
 
             modm::can::Message alive(CANID_MOTOR_ALIVE, 1);
             alive.setExtended(false);

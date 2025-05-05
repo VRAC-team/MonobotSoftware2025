@@ -631,8 +631,9 @@ int main()
 
     modm::PeriodicTimer blinker { 50ms };
     
-    bool first_can_alive = true;
-    modm::PeriodicTimer can_alive_timer { 1s };
+    bool first_alive_since_reboot = true;
+    modm::PeriodicTimer timer_alive { 1s };
+
     
     modm::PeriodicTimer status_timer { 200ms };
 
@@ -641,13 +642,13 @@ int main()
             Board::LedD13::toggle();
         }
 
-        if (can_alive_timer.execute()) {
+        if (timer_alive.execute() || first_alive_since_reboot) {
             modm::can::Message alive(CANID_IO_ALIVE, 1);
             alive.setExtended(false);
-            alive.data[0] = first_can_alive;
+            alive.data[0] = first_alive_since_reboot;
             Can1::sendMessage(alive);
 
-            first_can_alive = false;
+            first_alive_since_reboot = false;
         }
 
         if (status_timer.execute()) {
