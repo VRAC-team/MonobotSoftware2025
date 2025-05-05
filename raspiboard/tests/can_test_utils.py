@@ -46,11 +46,6 @@ class CanBusTestCase(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        # TODO temp fix just use ./run_test.sh
-        # if not hasattr(cls, 'bus') or cls.bus is None:
-        #     raise RuntimeError(
-        #         "CanBusTestCase.bus must be set before setUpClass() is called."
-        #     )
         cls.can_silent_ids = cls.get_can_silent_ids()
 
     def setUp(self):
