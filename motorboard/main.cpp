@@ -228,26 +228,12 @@ int main()
                 // silently fail here
                 continue;
             }
-                
 
-            int16_t pwm_right = (message.data[0] << 8) | message.data[1];
-            int16_t pwm_left = (message.data[2] << 8) | message.data[3];
+            int16_t pwm_left = (message.data[0] << 8) | message.data[1];
+            int16_t pwm_right = (message.data[2] << 8) | message.data[3];
 
-            uint16_t right_timer_cmp = 0;
             uint16_t left_timer_cmp = 0;
-
-            if (pwm_right == 0) {
-                M1_in1::reset();
-                M1_in2::reset();
-            } else if (pwm_right > 0) {
-                M1_in1::set();
-                M1_in2::reset();
-                right_timer_cmp = pwm_right * timer1_overflow / SHRT_MAX;
-            } else {
-                M1_in1::reset();
-                M1_in2::set();
-                right_timer_cmp = -pwm_right * timer1_overflow / -SHRT_MIN;
-            }
+            uint16_t right_timer_cmp = 0;
 
             if (pwm_left == 0) {
                 M2_in1::reset();
@@ -262,8 +248,21 @@ int main()
                 left_timer_cmp = -pwm_left * timer1_overflow / -SHRT_MIN;
             }
 
-            Timer1::setCompareValue<M1_pwm::Ch1>(right_timer_cmp);
+            if (pwm_right == 0) {
+                M1_in1::reset();
+                M1_in2::reset();
+            } else if (pwm_right > 0) {
+                M1_in1::set();
+                M1_in2::reset();
+                right_timer_cmp = pwm_right * timer1_overflow / SHRT_MAX;
+            } else {
+                M1_in1::reset();
+                M1_in2::set();
+                right_timer_cmp = -pwm_right * timer1_overflow / -SHRT_MIN;
+            }
+
             Timer1::setCompareValue<M2_pwm::Ch2>(left_timer_cmp);
+            Timer1::setCompareValue<M1_pwm::Ch1>(right_timer_cmp);
 
             send_status(false);
 

@@ -10,8 +10,8 @@
 
 #define CANID_MOTOR_PWM_WRITE 0x002
 // must be sent periodically at 200Hz, if the motorboard doesn't receive a PWM_WRITE for 10ms then it will change state to ERROR
-// <i16 pwm_right>
 // <i16 pwm_left>
+// <i16 pwm_right>
 
 #define CANID_MOTOR_STATUS 0x003
 // sent by motorboard
