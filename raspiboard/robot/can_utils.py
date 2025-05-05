@@ -1,5 +1,4 @@
 import can
-from can.interfaces.socketcan import SocketcanBus
 
 
 def send(bus: can.Bus, msg: can.Message) -> bool:
@@ -20,14 +19,18 @@ def send(bus: can.Bus, msg: can.Message) -> bool:
         return False
 
 
-def get_can_interface(preferred_interface=("can0", "vcan0"), bitrate: int = 1000000):
-    for chan in preferred_interface:
+def get_can_interface(
+    preferred_channel=("can0", "vcan0"), bitrate: int = 1000000
+) -> can.BusABC | None:
+    for chan in preferred_channel:
         try:
-            bus = SocketcanBus(channel=chan, bitrate=bitrate, local_loopback=True)
+            bus = can.ThreadSafeBus(
+                channel=chan,
+                interface="socketcan",
+                bitrate=bitrate,
+                local_loopback=True,
+            )
             print(f"found SocketCAN interface: {bus}")
             return bus
-        except Exception as e:
-            print(e)
+        except Exception:
             pass
-    print("No SocketCAN interface found")
-    quit()
