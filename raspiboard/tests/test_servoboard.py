@@ -4,7 +4,7 @@ import colorama
 
 import tests.can_test_utils as can_test_utils
 import robot.can_utils as can_utils
-from robot.boards.servoboard import ServoBoard, ServoConfig
+from robot.boards.servoboard import ServoBoard, Servo
 from robot.canids import CANIDS
 
 colorama.init(autoreset=True)
@@ -12,7 +12,7 @@ bus = can_utils.get_can_interface()
 # filters IDs from 0x100 to 0x1FF
 bus.set_filters([{"can_id": 0x100, "can_mask": 0x700, "extended": False}])
 
-servoboard = ServoBoard(bus, {i: ServoConfig() for i in range(16)})
+servoboard = ServoBoard(bus, {i: Servo() for i in range(16)})
 
 VALID_SERVO_ID = [0, 1, 8, 15]
 INVALID_SERVO_ID = [-1, 16, 17, 200]
@@ -143,9 +143,7 @@ if __name__ == "__main__":
     unit_tests = unittest.TestLoader().loadTestsFromTestCase(ServoBoardUnitTests)
     runner.run(unit_tests)
 
-    integration_tests = unittest.TestLoader().loadTestsFromTestCase(
-        ServoBoardIntegrationTests
-    )
+    integration_tests = unittest.TestLoader().loadTestsFromTestCase(ServoBoardIntegrationTests)
     runner.run(integration_tests)
 
     servoboard.reboot()

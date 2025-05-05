@@ -69,11 +69,7 @@ class CanBusTestCase(unittest.TestCase):
         expected_can_data: bytes | list[int] | None = None,
         timeout: float = 5,
     ) -> bool:
-        expected_data = (
-            bytes(expected_can_data)
-            if isinstance(expected_can_data, list)
-            else expected_can_data
-        )
+        expected_data = bytes(expected_can_data) if isinstance(expected_can_data, list) else expected_can_data
 
         msg = self.bus.recv(timeout=timeout)
 
@@ -101,11 +97,7 @@ class CanBusTestCase(unittest.TestCase):
     ) -> bool:
         deadline = time.time() + timeout
 
-        expected_data = (
-            bytes(expected_can_data)
-            if isinstance(expected_can_data, list)
-            else expected_can_data
-        )
+        expected_data = bytes(expected_can_data) if isinstance(expected_can_data, list) else expected_can_data
 
         while time.time() < deadline:
             remaining_time = max(0, deadline - time.time())
@@ -123,9 +115,7 @@ class CanBusTestCase(unittest.TestCase):
 
                     return True
 
-        self.fail(
-            f"CAN ID {expected_can_id} was not received within {timeout} seconds with data {expected_can_data}."
-        )
+        self.fail(f"CAN ID {expected_can_id} was not received within {timeout} seconds with data {expected_can_data}.")
 
     def assertCanMessageNotReceived(
         self,
@@ -135,11 +125,7 @@ class CanBusTestCase(unittest.TestCase):
     ) -> bool:
         deadline = time.time() + timeout
 
-        expected_data = (
-            bytes(unexpected_can_data)
-            if isinstance(unexpected_can_data, list)
-            else unexpected_can_data
-        )
+        expected_data = bytes(unexpected_can_data) if isinstance(unexpected_can_data, list) else unexpected_can_data
 
         while time.time() < deadline:
             remaining_time = max(0, deadline - time.time())

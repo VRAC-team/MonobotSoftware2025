@@ -67,27 +67,19 @@ class IOBoardIntegrationTests(can_test_utils.CanBusTestCase):
 
     def test_04_disable(self):
         self.assertTrue(ioboard.enable(False))
-        self.assertCanMessageReceived(
-            [CANIDS.CANID_IO_STATUS], expected_can_data=[False]
-        )
+        self.assertCanMessageReceived([CANIDS.CANID_IO_STATUS], expected_can_data=[False])
 
     def test_05_enable(self):
         self.assertTrue(ioboard.enable(True))
-        self.assertCanMessageReceived(
-            [CANIDS.CANID_IO_STATUS], expected_can_data=[True]
-        )
+        self.assertCanMessageReceived([CANIDS.CANID_IO_STATUS], expected_can_data=[True])
 
     def test_06_goto(self):
         self.return_to_zero()
 
         for dir in [1, -1]:
-            self.assertTrue(
-                ioboard.goto_abs(STEPPER_ID, STEPS_PER_REV * 4 * dir, ACCEL, MAX_VEL)
-            )
+            self.assertTrue(ioboard.goto_abs(STEPPER_ID, STEPS_PER_REV * 4 * dir, ACCEL, MAX_VEL))
             self.assertCanMessageReceived([CANIDS.CANID_IO_STEPPER_GOTO_STARTING])
-            self.assertCanMessageReceived(
-                [CANIDS.CANID_IO_STEPPER_GOTO_FINISHED], timeout=5
-            )
+            self.assertCanMessageReceived([CANIDS.CANID_IO_STEPPER_GOTO_FINISHED], timeout=5)
 
     def test_07_goto_same_position(self):
         self.return_to_zero()
@@ -95,17 +87,13 @@ class IOBoardIntegrationTests(can_test_utils.CanBusTestCase):
         for pos in [STEPS_PER_REV * 4, 0, -STEPS_PER_REV * 4]:
             self.assertTrue(ioboard.goto_abs(STEPPER_ID, pos, ACCEL, MAX_VEL))
             self.assertCanMessageReceived([CANIDS.CANID_IO_STEPPER_GOTO_STARTING])
-            self.assertCanMessageReceived(
-                [CANIDS.CANID_IO_STEPPER_GOTO_FINISHED], timeout=5
-            )
+            self.assertCanMessageReceived([CANIDS.CANID_IO_STEPPER_GOTO_FINISHED], timeout=5)
 
             # these same position must finish immediately as the position has not changed
             for i in range(5):
                 self.assertTrue(ioboard.goto_abs(STEPPER_ID, pos, ACCEL, MAX_VEL))
                 self.assertCanMessageReceived([CANIDS.CANID_IO_STEPPER_GOTO_STARTING])
-                self.assertCanMessageReceived(
-                    [CANIDS.CANID_IO_STEPPER_GOTO_FINISHED], timeout=0.1
-                )
+                self.assertCanMessageReceived([CANIDS.CANID_IO_STEPPER_GOTO_FINISHED], timeout=0.1)
 
     def test_08_goto_instant_accel(self):
         # purpose of this test is to have zero accelerations steps (very high accel, very low speed)
@@ -115,15 +103,9 @@ class IOBoardIntegrationTests(can_test_utils.CanBusTestCase):
             pos = STEPS_PER_REV // 10
             pos *= dir
 
-            self.assertTrue(
-                ioboard.goto_abs(
-                    STEPPER_ID, pos, STEPS_PER_REV * 60, STEPS_PER_REV // 30
-                )
-            )
+            self.assertTrue(ioboard.goto_abs(STEPPER_ID, pos, STEPS_PER_REV * 60, STEPS_PER_REV // 30))
             self.assertCanMessageReceived([CANIDS.CANID_IO_STEPPER_GOTO_STARTING])
-            self.assertCanMessageReceived(
-                [CANIDS.CANID_IO_STEPPER_GOTO_FINISHED], timeout=10
-            )
+            self.assertCanMessageReceived([CANIDS.CANID_IO_STEPPER_GOTO_FINISHED], timeout=10)
 
     def test_09_lot_of_little_goto(self):
         for dir in [1, -1]:
@@ -148,24 +130,14 @@ class IOBoardIntegrationTests(can_test_utils.CanBusTestCase):
     def test_10_home_failed(self):
         # home 1 turns
         for dir in [1, -1]:
-            self.assertTrue(
-                ioboard.home(
-                    STEPPER_ID, STEPS_PER_REV * dir, TOR_ID, TOR_STATE_TO_END_HOMING
-                )
-            )
+            self.assertTrue(ioboard.home(STEPPER_ID, STEPS_PER_REV * dir, TOR_ID, TOR_STATE_TO_END_HOMING))
             self.assertCanMessageReceived([CANIDS.CANID_IO_STEPPER_HOME_STARTING])
-            self.assertCanMessageReceived(
-                [CANIDS.CANID_IO_STEPPER_HOME_FAILED], timeout=5
-            )
+            self.assertCanMessageReceived([CANIDS.CANID_IO_STEPPER_HOME_FAILED], timeout=5)
             time.sleep(0.3)
 
     def test_11_home_at_first_step(self):
         # home at first step (inverting tor state to end homing at first step)
-        self.assertTrue(
-            ioboard.home(
-                STEPPER_ID, STEPS_PER_REV * 3, TOR_ID, not TOR_STATE_TO_END_HOMING
-            )
-        )
+        self.assertTrue(ioboard.home(STEPPER_ID, STEPS_PER_REV * 3, TOR_ID, not TOR_STATE_TO_END_HOMING))
         self.assertCanMessageReceived([CANIDS.CANID_IO_STEPPER_HOME_STARTING])
         self.assertCanMessageReceived([CANIDS.CANID_IO_STEPPER_HOME_SUCCEEDED])
         time.sleep(0.3)
@@ -177,9 +149,7 @@ class IOBoardIntegrationTests(can_test_utils.CanBusTestCase):
         time.sleep(0.3)
 
         # home at first step (zero steps and inverting tor state to end homing at first step)
-        self.assertTrue(
-            ioboard.home(STEPPER_ID, 0, TOR_ID, not TOR_STATE_TO_END_HOMING)
-        )
+        self.assertTrue(ioboard.home(STEPPER_ID, 0, TOR_ID, not TOR_STATE_TO_END_HOMING))
         self.assertCanMessageReceived([CANIDS.CANID_IO_STEPPER_HOME_STARTING])
         self.assertCanMessageReceived([CANIDS.CANID_IO_STEPPER_HOME_SUCCEEDED])
         time.sleep(0.3)
@@ -188,43 +158,23 @@ class IOBoardIntegrationTests(can_test_utils.CanBusTestCase):
         for dir in [1, -1]:
             self.return_to_zero()
 
-            self.assertTrue(
-                ioboard.goto_abs(
-                    STEPPER_ID, (STEPS_PER_REV * 2) * dir, ACCEL, MAX_VEL // 5
-                )
-            )
+            self.assertTrue(ioboard.goto_abs(STEPPER_ID, (STEPS_PER_REV * 2) * dir, ACCEL, MAX_VEL // 5))
             self.assertCanMessageReceived([CANIDS.CANID_IO_STEPPER_GOTO_STARTING])
             time.sleep(0.5)
-            self.assertTrue(
-                ioboard.goto_abs(
-                    STEPPER_ID, STEPS_PER_REV * 2 * dir * -1, ACCEL, MAX_VEL // 5
-                )
-            )
-            self.assertCanMessageReceived(
-                [CANIDS.CANID_IO_STEPPER_ERROR_MOTION_IN_PROGRESS]
-            )
-            self.assertCanMessageReceived(
-                [CANIDS.CANID_IO_STEPPER_GOTO_FINISHED], timeout=5
-            )
+            self.assertTrue(ioboard.goto_abs(STEPPER_ID, STEPS_PER_REV * 2 * dir * -1, ACCEL, MAX_VEL // 5))
+            self.assertCanMessageReceived([CANIDS.CANID_IO_STEPPER_ERROR_MOTION_IN_PROGRESS])
+            self.assertCanMessageReceived([CANIDS.CANID_IO_STEPPER_GOTO_FINISHED], timeout=5)
 
     def test_13_goto_home_error_motion_in_progress(self):
         for dir in [1, -1]:
             self.return_to_zero()
 
-            self.assertTrue(
-                ioboard.goto_abs(
-                    STEPPER_ID, (STEPS_PER_REV * 2) * dir, ACCEL, MAX_VEL // 5
-                )
-            )
+            self.assertTrue(ioboard.goto_abs(STEPPER_ID, (STEPS_PER_REV * 2) * dir, ACCEL, MAX_VEL // 5))
             self.assertCanMessageReceived([CANIDS.CANID_IO_STEPPER_GOTO_STARTING])
             time.sleep(0.5)
             self.assertTrue(ioboard.home(STEPPER_ID, STEPS_PER_REV * 3, TOR_ID, True))
-            self.assertCanMessageReceived(
-                [CANIDS.CANID_IO_STEPPER_ERROR_MOTION_IN_PROGRESS]
-            )
-            self.assertCanMessageReceived(
-                [CANIDS.CANID_IO_STEPPER_GOTO_FINISHED], timeout=5
-            )
+            self.assertCanMessageReceived([CANIDS.CANID_IO_STEPPER_ERROR_MOTION_IN_PROGRESS])
+            self.assertCanMessageReceived([CANIDS.CANID_IO_STEPPER_GOTO_FINISHED], timeout=5)
 
     def test_14_home_home_error_motion_in_progress(self):
         for dir in [1, -1]:
@@ -245,9 +195,7 @@ class IOBoardIntegrationTests(can_test_utils.CanBusTestCase):
                     TOR_STATE_TO_END_HOMING,
                 )
             )
-            self.assertCanMessageReceived(
-                [CANIDS.CANID_IO_STEPPER_ERROR_MOTION_IN_PROGRESS]
-            )
+            self.assertCanMessageReceived([CANIDS.CANID_IO_STEPPER_ERROR_MOTION_IN_PROGRESS])
             self.assertCanMessageReceived(
                 [
                     CANIDS.CANID_IO_STEPPER_HOME_SUCCEEDED,
@@ -268,14 +216,8 @@ class IOBoardIntegrationTests(can_test_utils.CanBusTestCase):
                 )
             )
             self.assertCanMessageReceived([CANIDS.CANID_IO_STEPPER_HOME_STARTING])
-            self.assertTrue(
-                ioboard.goto_abs(
-                    STEPPER_ID, (STEPS_PER_REV * 2) * dir, ACCEL, MAX_VEL // 5
-                )
-            )
-            self.assertCanMessageReceived(
-                [CANIDS.CANID_IO_STEPPER_ERROR_MOTION_IN_PROGRESS]
-            )
+            self.assertTrue(ioboard.goto_abs(STEPPER_ID, (STEPS_PER_REV * 2) * dir, ACCEL, MAX_VEL // 5))
+            self.assertCanMessageReceived([CANIDS.CANID_IO_STEPPER_ERROR_MOTION_IN_PROGRESS])
             self.assertCanMessageReceived(
                 [
                     CANIDS.CANID_IO_STEPPER_HOME_SUCCEEDED,
@@ -292,9 +234,7 @@ class IOBoardIntegrationTests(can_test_utils.CanBusTestCase):
         self.assertTrue(ioboard.goto_abs(STEPPER_ID, STEPS_PER_REV * 2, ACCEL, MAX_VEL))
         self.assertCanMessageReceived([CANIDS.CANID_IO_STEPPER_ERROR_NOT_ENABLED])
 
-        self.assertTrue(
-            ioboard.home(STEPPER_ID, STEPS_PER_REV * 3, TOR_ID, TOR_STATE_TO_END_HOMING)
-        )
+        self.assertTrue(ioboard.home(STEPPER_ID, STEPS_PER_REV * 3, TOR_ID, TOR_STATE_TO_END_HOMING))
         self.assertCanMessageReceived([CANIDS.CANID_IO_STEPPER_ERROR_NOT_ENABLED])
 
         self.assertTrue(ioboard.enable(True))
@@ -302,30 +242,22 @@ class IOBoardIntegrationTests(can_test_utils.CanBusTestCase):
     def test_17_goto_disable_error_disabled_during_motion(self):
         self.return_to_zero()
 
-        self.assertTrue(
-            ioboard.goto_abs(STEPPER_ID, STEPS_PER_REV * 2, ACCEL, MAX_VEL // 3)
-        )
+        self.assertTrue(ioboard.goto_abs(STEPPER_ID, STEPS_PER_REV * 2, ACCEL, MAX_VEL // 3))
         self.assertCanMessageReceived([CANIDS.CANID_IO_STEPPER_GOTO_STARTING])
         time.sleep(0.5)
         self.assertTrue(ioboard.enable(False))
-        self.assertCanMessageReceived(
-            [CANIDS.CANID_IO_STEPPER_ERROR_DISABLED_DURING_MOTION]
-        )
+        self.assertCanMessageReceived([CANIDS.CANID_IO_STEPPER_ERROR_DISABLED_DURING_MOTION])
 
         self.assertTrue(ioboard.enable(True))
 
     def test_18_home_disable_error_disabled_during_motion(self):
         self.return_to_zero()
 
-        self.assertTrue(
-            ioboard.home(STEPPER_ID, STEPS_PER_REV * 3, TOR_ID, TOR_STATE_TO_END_HOMING)
-        )
+        self.assertTrue(ioboard.home(STEPPER_ID, STEPS_PER_REV * 3, TOR_ID, TOR_STATE_TO_END_HOMING))
         self.assertCanMessageReceived([CANIDS.CANID_IO_STEPPER_HOME_STARTING])
         time.sleep(0.5)
         self.assertTrue(ioboard.enable(False))
-        self.assertCanMessageReceived(
-            [CANIDS.CANID_IO_STEPPER_ERROR_DISABLED_DURING_MOTION]
-        )
+        self.assertCanMessageReceived([CANIDS.CANID_IO_STEPPER_ERROR_DISABLED_DURING_MOTION])
 
         self.assertTrue(ioboard.enable(True))
 
@@ -352,9 +284,7 @@ class IOBoardManualTests(can_test_utils.CanBusTestCase):
 
     def test_01_home_succeeded(self):
         print(f"{Fore.YELLOW}HEY TESTER, YOUR INTERACTION IS REQUIRED THERE!")
-        print(
-            f"{Fore.YELLOW}Change the tor state for these 2 incomming home (20 turns) else this test will fail"
-        )
+        print(f"{Fore.YELLOW}Change the tor state for these 2 incomming home (20 turns) else this test will fail")
         for i in range(5, 0, -1):
             print(f"starting in {i}..")
             time.sleep(1)
@@ -369,9 +299,7 @@ class IOBoardManualTests(can_test_utils.CanBusTestCase):
                 )
             )
             self.assertCanMessageReceived([CANIDS.CANID_IO_STEPPER_HOME_STARTING])
-            self.assertCanMessageReceived(
-                [CANIDS.CANID_IO_STEPPER_HOME_SUCCEEDED], timeout=20
-            )
+            self.assertCanMessageReceived([CANIDS.CANID_IO_STEPPER_HOME_SUCCEEDED], timeout=20)
             time.sleep(0.3)
 
 
@@ -384,9 +312,7 @@ if __name__ == "__main__":
     unit_tests = unittest.TestLoader().loadTestsFromTestCase(IOBoardUnitTests)
     runner.run(unit_tests)
 
-    integration_tests = unittest.TestLoader().loadTestsFromTestCase(
-        IOBoardIntegrationTests
-    )
+    integration_tests = unittest.TestLoader().loadTestsFromTestCase(IOBoardIntegrationTests)
     runner.run(integration_tests)
 
     manual_tests = unittest.TestLoader().loadTestsFromTestCase(IOBoardManualTests)

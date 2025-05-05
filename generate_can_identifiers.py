@@ -17,9 +17,7 @@ def parse_header_file(filepath):
                     value = int(hex_value, 16)
                     identifiers.append((name, value))
                 except ValueError:
-                    print(
-                        f"Warning: Invalid hex value at line {line_num}: {line.strip()}"
-                    )
+                    print(f"Warning: Invalid hex value at line {line_num}: {line.strip()}")
     return identifiers
 
 

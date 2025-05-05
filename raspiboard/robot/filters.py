@@ -43,9 +43,7 @@ class MovingAverageFilter:
 
 
 class RampFilter:
-    def __init__(
-        self, control_loop_period: float, accel_rate: float, decel_rate: float
-    ):
+    def __init__(self, control_loop_period: float, accel_rate: float, decel_rate: float):
         self.accel_rate = accel_rate * control_loop_period
         self.decel_rate = decel_rate * control_loop_period
         self.current_value = 0.0
@@ -64,9 +62,7 @@ class RampFilter:
         if (self.current_value * direction) < 0:
             change = self.decel_rate * direction
         elif abs(delta) > self.accel_rate:
-            if (self.current_value < target and direction > 0) or (
-                self.current_value > target and direction < 0
-            ):
+            if (self.current_value < target and direction > 0) or (self.current_value > target and direction < 0):
                 change = self.accel_rate * direction
             else:
                 change = self.decel_rate * direction
@@ -76,9 +72,7 @@ class RampFilter:
 
         self.current_value += change
 
-        if (direction > 0 and self.current_value > target) or (
-            direction < 0 and self.current_value < target
-        ):
+        if (direction > 0 and self.current_value > target) or (direction < 0 and self.current_value < target):
             self.current_value = target
 
         return self.current_value

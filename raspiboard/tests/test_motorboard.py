@@ -38,9 +38,7 @@ class MotorBoardIntegrationTests(can_test_utils.CanBusTestCase):
 
     def test_03_status_error(self):
         for i in range(200):
-            self.assertCanMessageReceived(
-                [CANIDS.CANID_MOTOR_STATUS], [True], timeout=0.1
-            )
+            self.assertCanMessageReceived([CANIDS.CANID_MOTOR_STATUS], [True], timeout=0.1)
 
     def test_04_pwm_write_valid(self):
         self.assertCanMessageReceived([CANIDS.CANID_MOTOR_STATUS], [True], timeout=0.5)
@@ -50,9 +48,7 @@ class MotorBoardIntegrationTests(can_test_utils.CanBusTestCase):
             start_time = time.monotonic()
 
             self.assertTrue(motorboard.pwm_write(0, 0))
-            self.assertCanMessageReceived(
-                [CANIDS.CANID_MOTOR_STATUS], [False], timeout=0.1
-            )
+            self.assertCanMessageReceived([CANIDS.CANID_MOTOR_STATUS], [False], timeout=0.1)
 
             elapsed_time = time.monotonic() - start_time
             timeout = max(0, CONTROL_LOOP_PERIOD - elapsed_time)
@@ -61,17 +57,13 @@ class MotorBoardIntegrationTests(can_test_utils.CanBusTestCase):
         time.sleep(0.015)
         self.flushCanMessages()
         # after sleep 15ms we should NOT get state_error=False on the STATUS
-        self.assertCanMessageNotReceived(
-            [CANIDS.CANID_MOTOR_STATUS], [False], timeout=0.1
-        )
+        self.assertCanMessageNotReceived([CANIDS.CANID_MOTOR_STATUS], [False], timeout=0.1)
 
     def test_05_reset_error_invalid(self):
         self.assertCanMessageReceived([CANIDS.CANID_MOTOR_STATUS], [True], timeout=0.5)
         self.assertTrue(motorboard.reset_error())
         # here we do not send the PWM_WRITE, we should not receive MOTOR_STATUS with state_error=False
-        self.assertCanMessageNotReceived(
-            [CANIDS.CANID_MOTOR_STATUS], [False], timeout=1
-        )
+        self.assertCanMessageNotReceived([CANIDS.CANID_MOTOR_STATUS], [False], timeout=1)
 
 
 if __name__ == "__main__":
@@ -79,9 +71,7 @@ if __name__ == "__main__":
 
     runner = can_test_utils.CustomRunner()
 
-    integration_tests = unittest.TestLoader().loadTestsFromTestCase(
-        MotorBoardIntegrationTests
-    )
+    integration_tests = unittest.TestLoader().loadTestsFromTestCase(MotorBoardIntegrationTests)
     runner.run(integration_tests)
 
     motorboard.reboot()
