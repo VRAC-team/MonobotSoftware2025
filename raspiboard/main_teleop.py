@@ -7,6 +7,7 @@ import signal
 import can
 from evdev import ecodes
 import gpiod
+import queue
 import logging
 
 import robot.can_utils as can_utils
@@ -18,7 +19,7 @@ import robot.utils as utils
 
 class Robot:
     def __init__(self):
-        self.logger = logging.getLogger(__name__ + "." + self.__class__.__name__)
+        self.logger = logging.getLogger(self.__class__.__name__)
 
         self.bus = can_utils.get_can_interface()
         if self.bus is None:
@@ -96,10 +97,11 @@ class TeleopRobot(Robot):
     def __init__(self):
         super().__init__()
         self.gamepad = Gamepad()
-        self.logger = logging.getLogger(__name__ + "." + self.__class__.__name__)
+        self.gamepad_updates = queue.Queue()
+        self.logger = logging.getLogger(self.__class__.__name__)
 
-    def run(self):
-        self.start()
+    def thread_gamepad_actions(self):
+        # servo_write_angle, goto_abs, home are blocking for a duration of can.send each (approx 1ms), ence why this thread is required
 
         ELEVATOR_ACCEL = self.params.STEPPER_STEPS_PER_REV * 40
         ELEVATOR_MAXVEL = self.params.STEPPER_STEPS_PER_REV * 4
@@ -107,54 +109,16 @@ class TeleopRobot(Robot):
         ELEVATOR_POS_HIGH = self.params.STEPPER_STEPS_PER_REV * 3
         ELEVATOR_HOMING_MAX_STEPS = self.params.STEPPER_STEPS_PER_REV * 10
 
-        last_elapsed_time = 0.0
-
         led_pattern_id = 0
         servo_angle = 0
 
         while not self.stop_event.is_set():
-            start_time = time.monotonic()
-
-            if not self.gamepad.is_connected():
-                self.logger.info("Waiting for gamepad...")
-                if not self.gamepad.connect():
-                    time.sleep(1)
-                    continue
-
-            if not self.gamepad.update():
-                self.robotcontroller.reset_pid()
+            gp = self.gamepad_updates.get(timeout=1)
+            if gp is None:
                 continue
 
-            # handle gamepad START
-            if ecodes.BTN_START in self.gamepad.keys_pressed:
-                self.logger.info("RESUME")
-
-                # because we totally disabled the gc, let's collect it now before we restart the critical application
-                gc.collect()
-
-                self.ioboard.enable(True)
-                self.servoboard.enable_power(False, True, True)
-                self.robotcontroller.reset_pid()
-                self.motorboard.reset_error()
-
-            # handle gamepad SELECT
-            elif ecodes.BTN_SELECT in self.gamepad.keys_pressed:
-                self.logger.info("PAUSE")
-                time.sleep(self.params.CONTROLLOOP_PERIOD_S * 2)
-                self.ioboard.enable(False)
-                self.servoboard.enable_power(False, False, False)
-
-            # handle gamepad sticks
-            gp_theta = -self.gamepad.x * 130  # deg/s
-            gp_speed = (self.gamepad.rz - self.gamepad.z) * 400  # mm/s
-
-            # handle gamepad Y
-            if ecodes.BTN_Y in self.gamepad.keys_active:
-                gp_theta = -self.gamepad.x * 180
-                gp_speed = (self.gamepad.rz - self.gamepad.z) * 800
-
             # handle gamepad X
-            if ecodes.BTN_X in self.gamepad.keys_pressed:
+            if ecodes.BTN_X in gp.keys_pressed:
                 self.logger.info("setting led pattern:%d", led_pattern_id)
                 for i in range(4):
                     self.servoboard.set_led_pattern(i, led_pattern_id)
@@ -163,7 +127,7 @@ class TeleopRobot(Robot):
                     led_pattern_id = 0
 
             # handle gamepad A
-            if ecodes.BTN_A in self.gamepad.keys_pressed:
+            if ecodes.BTN_A in gp.keys_pressed:
                 self.servoboard.servo_write_angle(8, servo_angle)
                 self.servoboard.servo_write_angle(9, servo_angle)
                 self.servoboard.servo_write_angle(15, servo_angle)
@@ -174,12 +138,63 @@ class TeleopRobot(Robot):
                     servo_angle = 0
 
             # handle gamepad DPAD
-            if ecodes.BTN_DPAD_UP in self.gamepad.keys_pressed:
+            elif ecodes.BTN_DPAD_UP in gp.keys_pressed:
                 self.ioboard.goto_abs(4, ELEVATOR_POS_HIGH, ELEVATOR_ACCEL, ELEVATOR_MAXVEL)
-            elif ecodes.BTN_DPAD_DOWN in self.gamepad.keys_pressed:
+            elif ecodes.BTN_DPAD_DOWN in gp.keys_pressed:
                 self.ioboard.goto_abs(4, ELEVATOR_POS_LOW, ELEVATOR_ACCEL, ELEVATOR_MAXVEL)
-            elif ecodes.BTN_DPAD_RIGHT in self.gamepad.keys_pressed:
+            elif ecodes.BTN_DPAD_RIGHT in gp.keys_pressed:
                 self.ioboard.home(4, ELEVATOR_HOMING_MAX_STEPS, 15, False)
+
+    def run(self):
+        self.start()
+
+        t_gamepad_actions = threading.Thread(target=self.thread_gamepad_actions)
+        t_gamepad_actions.start()
+
+        last_elapsed_time = 0.0
+
+        while not self.stop_event.is_set():
+            start_time = time.monotonic()
+
+            if not self.gamepad.is_connected():
+                self.logger.info("Waiting for gamepad...")
+                if not self.gamepad.connect():
+                    time.sleep(1)
+                    continue
+
+            gp = self.gamepad.update()
+            if gp is None:
+                self.robotcontroller.reset_pid()
+                continue
+            self.gamepad_updates.put(gp)
+
+            # handle gamepad START
+            if ecodes.BTN_START in gp.keys_pressed:
+                self.logger.info("START")
+
+                # because we totally disabled the gc, let's collect it now before we restart the critical application
+                gc.collect()
+
+                self.ioboard.enable(True)
+                self.servoboard.enable_power(False, True, True)
+                self.robotcontroller.reset_pid()
+                self.motorboard.reset_error()
+
+            # handle gamepad SELECT
+            elif ecodes.BTN_SELECT in gp.keys_pressed:
+                self.logger.info("PAUSE")
+                time.sleep(self.params.CONTROLLOOP_PERIOD_S * 2)
+                self.ioboard.enable(False)
+                self.servoboard.enable_power(False, False, False)
+
+            # handle gamepad sticks
+            gp_theta = -gp.x * 130  # deg/s
+            gp_speed = (gp.rz - gp.z) * 400  # mm/s
+
+            # handle gamepad Y
+            if ecodes.BTN_Y in gp.keys_active:
+                gp_theta = -gp.x * 180
+                gp_speed = (gp.rz - gp.z) * 800
 
             pwm_left, pwm_right = self.robotcontroller.compute(gp_theta, gp_speed)
             self.motorboard.pwm_write(pwm_left, pwm_right)

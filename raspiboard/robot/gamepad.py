@@ -1,5 +1,21 @@
 import evdev
 import logging
+import threading
+import dataclasses
+
+
+@dataclasses.dataclass(frozen=True)
+class GamepadState:
+    x: float = 0.0  # left stick horizontal [-1,1]
+    y: float = 0.0  # left stick vertical [-1,1]
+    rx: float = 0.0  # right stick horizontal [-1,1]
+    ry: float = 0.0  # right stick vertical [-1,1]
+    z: float = 0.0  # left trigger [-1,1]
+    rz: float = 0.0  # right trigger [-1,1]
+
+    keys_active: tuple[int, ...] = dataclasses.field(default_factory=tuple)
+    keys_pressed: tuple[int, ...] = dataclasses.field(default_factory=tuple)
+    keys_released: tuple[int, ...] = dataclasses.field(default_factory=tuple)
 
 
 class Gamepad:
@@ -7,19 +23,15 @@ class Gamepad:
         self.device_name: str | None = device_name
         self.device: evdev.InputDevice | None = None
 
-        self.x = 0.0  # left stick horizontal
-        self.y = 0.0  # left stick vertical
-        self.rx = 0.0  # right stick horizontal
-        self.ry = 0.0  # right stick vertical
-        self.z = 0.0  # left trigger
-        self.rz = 0.0  # right trigger
-
-        self.keys_active: list[int] = []
-        self.keys_pressed: list[int] = []
-        self.keys_released: list[int] = []
+        self.state = GamepadState()
         self.last_keys_active: list[int] = []
+        self.lock = threading.Lock()
 
         self.logger = logging.getLogger(self.__class__.__name__)
+
+    def get_state(self) -> GamepadState:
+        with self.lock:
+            return self.state
 
     def connect(self) -> bool:
         devices = [evdev.InputDevice(path) for path in evdev.list_devices()]
@@ -51,7 +63,7 @@ class Gamepad:
     def is_connected(self) -> bool:
         return self.device is not None
 
-    def update(self) -> bool:
+    def update(self) -> GamepadState | None:
         try:
             keys_active = self.device.active_keys()
             keys_pressed = []
@@ -76,26 +88,37 @@ class Gamepad:
                 if k not in keys_active:
                     keys_released.append(k)
 
-            self.keys_active = keys_active
-            self.keys_pressed = keys_pressed
-            self.keys_released = keys_released
-            self.last_keys_active = keys_active
+            abs_x = self.device.absinfo(evdev.ecodes.ABS_X)
+            abs_y = self.device.absinfo(evdev.ecodes.ABS_Y)
+            abs_rx = self.device.absinfo(evdev.ecodes.ABS_RX)
+            abs_ry = self.device.absinfo(evdev.ecodes.ABS_RY)
+            abs_z = self.device.absinfo(evdev.ecodes.ABS_Z)
+            abs_rz = self.device.absinfo(evdev.ecodes.ABS_RZ)
+            x = abs_x.value / abs_x.max
+            y = abs_y.value / abs_y.max
+            rx = abs_rx.value / abs_rx.max
+            ry = abs_ry.value / abs_ry.max
+            z = abs_z.value / abs_z.max
+            rz = abs_rz.value / abs_rz.max
 
-            x = self.device.absinfo(evdev.ecodes.ABS_X)
-            y = self.device.absinfo(evdev.ecodes.ABS_Y)
-            rx = self.device.absinfo(evdev.ecodes.ABS_RX)
-            ry = self.device.absinfo(evdev.ecodes.ABS_RY)
-            z = self.device.absinfo(evdev.ecodes.ABS_Z)
-            rz = self.device.absinfo(evdev.ecodes.ABS_RZ)
-            self.x = x.value / x.max
-            self.y = y.value / y.max
-            self.rx = rx.value / rx.max
-            self.ry = ry.value / ry.max
-            self.z = z.value / z.max
-            self.rz = rz.value / rz.max
+            new_state = GamepadState(
+                x=x,
+                y=y,
+                rx=rx,
+                ry=ry,
+                z=z,
+                rz=rz,
+                keys_active=tuple(keys_active),
+                keys_pressed=tuple(keys_pressed),
+                keys_released=tuple(keys_released),
+            )
+
+            with self.lock:
+                self.last_keys_active = keys_active
+                self.state = new_state
+
+            return self.state
 
         except (SystemError, OSError):
             self.disconnect()
-            return False
-
-        return True
+            return None
