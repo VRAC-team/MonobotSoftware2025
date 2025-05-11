@@ -8,10 +8,11 @@ from .motion.robot_controller import RobotController
 
 from .can_identifiers import CANIDS
 from .pid import PID
-from .telemetry import Telemetry
+from .telemetry import telemetry
 from .filters import RampFilter
 from .gamepad import Gamepad
 from .parameters import RobotParameters
+from .robot import Robot
 
 __all__ = [
     "IOBoard",
@@ -22,8 +23,9 @@ __all__ = [
     "RobotController",
     "CANIDS",
     "PID",
-    "Telemetry",
     "RampFilter",
     "Gamepad",
     "RobotParameters",
+    "Robot",
+    "telemetry",
 ]

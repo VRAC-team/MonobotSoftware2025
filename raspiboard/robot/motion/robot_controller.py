@@ -1,5 +1,7 @@
 import threading
-from robot import HallEncoder, Odometry
+
+from robot.motion.hall_encoder import HallEncoder
+from robot.motion.odometry import Odometry
 from robot.parameters import RobotParameters
 from robot.filters import RampFilter
 from robot.pid import PID

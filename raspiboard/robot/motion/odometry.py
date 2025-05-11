@@ -1,5 +1,6 @@
 import math
 import threading
+
 from robot.filters import MovingAverageFilter
 from robot.parameters import RobotParameters
 
