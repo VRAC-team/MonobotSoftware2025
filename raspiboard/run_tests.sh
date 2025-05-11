@@ -20,4 +20,4 @@ ask_and_run "PYTHONPATH=. python3 tests/test_ioboard.py"
 ask_and_run "PYTHONPATH=. python3 tests/test_servoboard.py"
 ask_and_run "PYTHONPATH=. python3 tests/test_motorboard.py"
 
-#python3 -m unittest discover -s tests
+#python3 -m unittest tests/test_servoboard.py

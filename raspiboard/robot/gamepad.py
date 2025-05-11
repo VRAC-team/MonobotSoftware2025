@@ -1,4 +1,5 @@
 import evdev
+import logging
 
 
 class Gamepad:
@@ -18,6 +19,8 @@ class Gamepad:
         self.keys_released: list[int] = []
         self.last_keys_active: list[int] = []
 
+        self.logger = logging.getLogger(self.__class__.__name__)
+
     def connect(self) -> bool:
         devices = [evdev.InputDevice(path) for path in evdev.list_devices()]
         for dev in devices:
@@ -28,17 +31,17 @@ class Gamepad:
                 try:
                     dev.grab()
                     self.device = dev
-                    print(f"Connected to: {dev.name} at {dev.path}")
+                    self.logger.info("Connected to %s at %s", dev.name, dev.path)
                     return True
                 except OSError:
-                    print(f"Could not grab device {dev}")
+                    self.logger.error("Could not grab device %s", dev)
                     self.device = None
                     return False
         return False
 
     def disconnect(self):
         if self.device:
-            print("gamepad disconnected!")
+            self.logger.info("Disconnect")
             try:
                 self.device.ungrab()
             except OSError:

@@ -1,6 +1,9 @@
 import can
+import struct
+import logging
+
 import robot.can_utils as can_utils
-from robot.canids import CANIDS
+from robot.can_identifiers import CANIDS
 
 
 def map_range(value, from_min, from_max, to_min, to_max):
@@ -9,32 +12,72 @@ def map_range(value, from_min, from_max, to_min, to_max):
     return (value - from_min) * (to_max - to_min) / (from_max - from_min) + to_min
 
 
-class ServoConfig:
-    def __init__(self, min_us: int = 500, max_us: int = 2500, max_angle: int = 180):
+class Servo:
+    def __init__(
+        self,
+        min_us: int = 500,
+        max_us: int = 2500,
+        max_angle: int = 180,
+        seconds_per_60deg=0.17,
+    ):
         self.min_us = min_us
         self.max_us = max_us
         self.max_angle = max_angle
+        self.seconds_per_60deg = seconds_per_60deg
+        self.position = 0
 
 
-def default_servos_configs():
+def default_servo_mapping() -> dict[int, Servo]:
     return {
-        8: ServoConfig(),
-        9: ServoConfig(),
-        10: ServoConfig(),
-        11: ServoConfig(),
-        15: ServoConfig(max_angle=270),
+        8: Servo(),
+        9: Servo(),
+        10: Servo(),
+        11: Servo(),
+        15: Servo(max_angle=270),
     }
 
 
-class ServoBoard:
-    def __init__(self, bus: can.Bus, servos_configs: dict = None):
+class ServoBoard(can.Listener):
+    def __init__(self, bus: can.Bus, servos: dict[int, Servo] = None):
         self.bus = bus
-        self.servos_configs = servos_configs or default_servos_configs()
+        self.servos: dict[int, Servo] = servos or default_servo_mapping()
+        self.logger = logging.getLogger(self.__class__.__name__)
+
+        for id in self.servos.keys():
+            if not (0 <= id <= 15):
+                raise ValueError(f"Servo ID:{id} is out of range. Valid IDs are between 0 and 15.")
+
+    def on_message_received(self, msg):
+        if not (0x100 <= msg.arbitration_id <= 0x1FF):
+            return
+
+        match msg.arbitration_id:
+            case CANIDS.CANID_SERVO_ERROR_INVALID_PARAMS:
+                self.logger.error("on_message_received: ERROR_INVALID_PARAMS")
+
+            case CANIDS.CANID_SERVO_ERROR_NOT_ENABLED:
+                self.logger.error("on_message_received: ERROR_NOT_ENABLED")
+
+            case CANIDS.CANID_SERVO_STATUS:
+                power1_adc, power2_adc, power3_adc, powers_en = struct.unpack(">HHHB", msg.data)
+                # power1_en = powers_en & 1
+                # power2_en = powers_en >> 1 & 1
+                # power3_en = powers_en >> 2 & 1
+                self.logger.log(
+                    -10,
+                    "STATUS (power1_adc:%d power1_adc:%d power1_adc:%d powers_en:%s)",
+                    power1_adc,
+                    power2_adc,
+                    power3_adc,
+                    format(powers_en, "03b"),
+                )
+
+            case CANIDS.CANID_SERVO_ALIVE:
+                (first_alive_since_reboot,) = struct.unpack(">?", msg.data)
+                self.logger.log(-10, "ALIVE (first_alive_since_reboot:%s)", first_alive_since_reboot)
 
     def reboot(self) -> bool:
-        msg = can.Message(
-            arbitration_id=CANIDS.CANID_SERVO_REBOOT, is_extended_id=False
-        )
+        msg = can.Message(arbitration_id=CANIDS.CANID_SERVO_REBOOT, is_extended_id=False)
         return can_utils.send(self.bus, msg)
 
     def enable_power(self, power1: bool, power2: bool, power3: bool) -> bool:
@@ -45,67 +88,62 @@ class ServoBoard:
         )
         return can_utils.send(self.bus, msg)
 
-    def servo_write_us(self, servo_id: int, servo_us: int) -> bool:
-        if servo_id not in self.servos_configs:
-            print(
-                f"servo_write_us: servo_id:{servo_id} not mapped in self.servos_configs"
-            )
+    def servo_write_us(self, id: int, us: int) -> bool:
+        if id not in self.servos:
+            self.logger.error("servo_write_us(): id:%d not mapped in self.servos", id)
             return False
 
-        servo_config = self.servos_configs[servo_id]
+        servo = self.servos[id]
 
-        if servo_us < servo_config.min_us or servo_us > servo_config.max_us:
-            print(
-                f"servo_write_us: invalid servo_us:{servo_us} (servo_config:{servo_config})"
-            )
+        if us < servo.min_us or us > servo.max_us:
+            self.logger.error("servo_write_us(): invalid us (id:%d us:%d)", id, us)
             return False
 
-        data = bytearray(servo_id.to_bytes(1) + servo_us.to_bytes(2))
-        msg = can.Message(
-            arbitration_id=CANIDS.CANID_SERVO_WRITE_US, data=data, is_extended_id=False
-        )
+        data = bytearray(id.to_bytes(1) + us.to_bytes(2))
+        msg = can.Message(arbitration_id=CANIDS.CANID_SERVO_WRITE_US, data=data, is_extended_id=False)
         return can_utils.send(self.bus, msg)
 
-    def servo_write_angle(self, servo_id: int, servo_angle: int) -> bool:
-        if servo_id not in self.servos_configs:
-            print(
-                f"servo_write_angle: servo_id:{servo_id} not mapped in self.servos_configs"
-            )
+    def servo_write_angle(self, id: int, angle: int) -> bool:
+        if id not in self.servos:
+            self.logger.error("servo_write_angle(): id:%d not mapped in self.servos", id)
             return False
 
-        servo_config = self.servos_configs[servo_id]
+        servo = self.servos[id]
 
-        if servo_angle < 0 or servo_angle > servo_config.max_angle:
-            print(
-                f"servo_write_angle: invalid angle:{servo_angle} (servo_config:{servo_config})"
-            )
+        if angle < 0 or angle > servo.max_angle:
+            self.logger.error("servo_write_angle(): invalid angle (id:%d angle:%d)", id, angle)
             return False
 
         servo_us = map_range(
-            servo_angle,
+            angle,
             0,
-            servo_config.max_angle,
-            servo_config.min_us,
-            servo_config.max_us,
+            servo.max_angle,
+            servo.min_us,
+            servo.max_us,
         )
         servo_us = int(servo_us)
 
-        data = bytearray(servo_id.to_bytes(1) + servo_us.to_bytes(2))
-        msg = can.Message(
-            arbitration_id=CANIDS.CANID_SERVO_WRITE_US, data=data, is_extended_id=False
-        )
+        # TODO add wait_for_motion_finished()
+        # movement_time = (abs(servo.position - angle) / 60.0) * servo.seconds_per_60deg
+        # asyncio.sleep(movement_time)
+        # print(f"OK servo:{id} finished moving from:{servo.position} to:{angle}")
+        servo.position = angle
+
+        data = bytearray(id.to_bytes(1) + servo_us.to_bytes(2))
+        msg = can.Message(arbitration_id=CANIDS.CANID_SERVO_WRITE_US, data=data, is_extended_id=False)
         return can_utils.send(self.bus, msg)
 
-    def set_led_pattern(self, led_id: int, led_pattern: int) -> bool:
-        if led_id < 0 or led_id > 3:
+    def set_led_pattern(self, id: int, pattern: int) -> bool:
+        if id < 0 or id > 3:
+            self.logger.error("set_led_pattern(): invalid led id:%d", id)
             return False
 
-        if led_pattern < 0:
+        if pattern < 0:
             return False
 
         msg = can.Message(
             arbitration_id=CANIDS.CANID_SERVO_SET_LED_PATTERN,
-            data=[led_id, led_pattern],
+            data=[id, pattern],
             is_extended_id=False,
         )
         return can_utils.send(self.bus, msg)

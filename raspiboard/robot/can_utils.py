@@ -1,4 +1,8 @@
 import can
+import logging
+import inspect
+
+logger = logging.getLogger(__name__)
 
 
 def send(bus: can.Bus, msg: can.Message) -> bool:
@@ -12,16 +16,21 @@ def send(bus: can.Bus, msg: can.Message) -> bool:
         sent to the CAN interface; it does not mean that another node received or acknowledged it.
         Be warned!
     """
+    frame = inspect.currentframe().f_back
+    caller_name = frame.f_code.co_name
+    caller_instance = frame.f_locals.get("self")
+    if caller_instance:
+        caller_name = f"{caller_instance.__class__.__name__}.{caller_name}"
+
     try:
         bus.send(msg)
         return True
     except can.CanError:
+        logger.error("could not sent CAN: caller:%s msg:%s", caller_name, msg)
         return False
 
 
-def get_can_interface(
-    preferred_channel=("can0", "vcan0"), bitrate: int = 1000000
-) -> can.BusABC | None:
+def get_can_interface(preferred_channel=("can0", "vcan0"), bitrate: int = 1000000) -> can.BusABC | None:
     for chan in preferred_channel:
         try:
             bus = can.ThreadSafeBus(
