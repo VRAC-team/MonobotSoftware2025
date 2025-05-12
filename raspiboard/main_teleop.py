@@ -6,15 +6,27 @@ from evdev import ecodes
 import queue
 import logging
 
-from robot import Robot, Gamepad, telemetry
+from robot import Robot, Gamepad, telemetry, Servo
 
 
 class TeleopRobot(Robot):
     def __init__(self):
         super().__init__()
+        self.servoboard.servos = {
+            8: Servo(min_us=675, max_us=2125),  # ON / OFF
+            9: Servo(min_us=900, max_us=2225),  # OFF / ON
+            10: Servo(min_us=500, max_us=1650),  # ON / OFF
+            11: Servo(min_us=525, max_us=1750),  # OFF / ON
+        }
         self.gamepad = Gamepad()
         self.gamepad_updates = queue.Queue()
         self.logger = logging.getLogger(self.__class__.__name__)
+
+    def set_grabber(self, grab: bool):
+        self.servoboard.servo_write_angle(8, 0 if grab else 180)
+        self.servoboard.servo_write_angle(9, 180 if grab else 0)
+        self.servoboard.servo_write_angle(10, 0 if grab else 180)
+        self.servoboard.servo_write_angle(11, 180 if grab else 0)
 
     def thread_gamepad_actions(self):
         # servo_write_angle, goto_abs, home are blocking for a duration of can.send each (approx 1ms), ence why this thread is required
@@ -26,7 +38,7 @@ class TeleopRobot(Robot):
         ELEVATOR_HOMING_MAX_STEPS = self.params.STEPPER_STEPS_PER_REV * 10
 
         led_pattern_id = 0
-        servo_angle = 0
+        grabber_state = False
 
         while not self.stop_event.is_set():
             try:
@@ -45,14 +57,8 @@ class TeleopRobot(Robot):
 
             # handle gamepad A
             if ecodes.BTN_A in gp.keys_pressed:
-                self.servoboard.servo_write_angle(8, servo_angle)
-                self.servoboard.servo_write_angle(9, servo_angle)
-                self.servoboard.servo_write_angle(15, servo_angle)
-
-                if servo_angle == 0:
-                    servo_angle = 180
-                else:
-                    servo_angle = 0
+                self.set_grabber(grabber_state)
+                grabber_state = not grabber_state
 
             # handle gamepad DPAD
             elif ecodes.BTN_DPAD_UP in gp.keys_pressed:
@@ -71,6 +77,8 @@ class TeleopRobot(Robot):
         last_elapsed_time = 0.0
 
         while not self.stop_event.is_set():
+            # main critical loop, the elapsed_time for this loop MUST strictly be under 5ms
+
             start_time = time.monotonic()
 
             if not self.gamepad.is_connected():

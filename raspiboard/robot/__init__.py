@@ -1,6 +1,6 @@
 from .boards.ioboard import IOBoard
 from .boards.motorboard import MotorBoard
-from .boards.servoboard import ServoBoard
+from .boards.servoboard import ServoBoard, Servo
 
 from .motion.hall_encoder import HallEncoder
 from .motion.odometry import Odometry
@@ -27,5 +27,6 @@ __all__ = [
     "Gamepad",
     "RobotParameters",
     "Robot",
+    "Servo",
     "telemetry",
 ]
