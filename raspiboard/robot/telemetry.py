@@ -3,6 +3,7 @@ import threading
 import time
 import queue
 from typing import Any
+import enum
 
 
 class Telemetry:
@@ -25,8 +26,23 @@ class Telemetry:
         self.stop_event.set()
         self.thread.join()
 
+    def send_enum(self, name: str, value: enum.Enum) -> None:
+        timestamp_ms = time.time() * 1000
+        try:
+            self.queue.put_nowait(f"{name}:{timestamp_ms:.0f}:{str(value)}|t".encode())
+        except queue.Full:
+            pass
+
+    def send_str(self, name: str, value: str) -> None:
+        timestamp_ms = time.time() * 1000
+        try:
+            self.queue.put_nowait(f"{name}:{timestamp_ms:.0f}:{value}|t".encode())
+        except queue.Full:
+            pass
+
     def send(self, name: str, value: Any) -> None:
         timestamp_ms = time.time() * 1000
+
         try:
             self.queue.put_nowait(f"{name}:{timestamp_ms:.0f}:{value}".encode())
         except queue.Full:
