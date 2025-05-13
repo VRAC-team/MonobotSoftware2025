@@ -33,14 +33,13 @@ def default_servo_mapping() -> dict[int, Servo]:
         9: Servo(),
         10: Servo(),
         11: Servo(),
-        15: Servo(max_angle=270),
     }
 
 
 class ServoBoard(can.Listener):
-    def __init__(self, bus: can.Bus, servos: dict[int, Servo] = None):
+    def __init__(self, bus: can.Bus, servos: dict[int, Servo]):
         self.bus = bus
-        self.servos: dict[int, Servo] = servos or default_servo_mapping()
+        self.servos = servos
         self.logger = logging.getLogger(self.__class__.__name__)
 
         for id in self.servos.keys():
