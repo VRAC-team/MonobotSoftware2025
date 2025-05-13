@@ -31,6 +31,15 @@ class Odometry:
         self.filter_vel_dist.reset()
         self.filter_vel_theta.reset()
 
+    def set(self, x_mm: float = None, y_mm: float = None, theta_rad: float = None):
+        with self.lock:
+            if x_mm is not None:
+                self.x_mm = x_mm
+            if y_mm is not None:
+                self.y_mm = y_mm
+            if theta_rad is not None:
+                self.theta_rad = theta_rad
+
     def update(self, ticks_left: int, ticks_right: int) -> None:
         delta_left = (ticks_left - self.last_ticks_left) * self.k_wheel
         delta_right = (ticks_right - self.last_ticks_right) * self.k_wheel
@@ -62,7 +71,11 @@ class Odometry:
         with self.lock:
             return self.y_mm
 
-    def get_theta(self) -> float:
+    def get_theta_rad(self) -> float:
+        with self.lock:
+            return self.theta_rad
+
+    def get_theta_deg(self) -> float:
         with self.lock:
             return self.theta_rad * 180.0 / math.pi
 
@@ -77,3 +90,6 @@ class Odometry:
     def get_velocity_distance(self) -> float:
         with self.lock:
             return self.filter_vel_dist.get()
+
+    def __str__(self):
+        return f"Odometry(x={self.x_mm:.1f}, y={self.y_mm:.1f}, tehta_deg={self.get_theta_deg():.1f})"

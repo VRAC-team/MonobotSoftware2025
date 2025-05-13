@@ -1,7 +1,8 @@
 import enum
 import math
-import utils
 import logging
+
+from robot.utils import clamp
 
 
 class TrapezoidProfileType(enum.Enum):
@@ -68,14 +69,14 @@ class TrapezoidProfile:
         self.last_position = current_distance
 
         self.logger.debug("---- TrapezoidProfile plan ----")
-        self.logger.debug("type:%f", self.type.name)
+        self.logger.debug("type:%s", self.type.name)
         self.logger.debug("distance:%f", distance)
         self.logger.debug("accel_time:%f", self.accel_time)
         self.logger.debug("accel_dist:%f", self.accel_dist)
         self.logger.debug("maxvel_time:%f", self.maxvel_time)
         self.logger.debug("maxvel_dist:%f", self.maxvel_dist)
 
-    def process(self, current_time: float):
+    def process(self, current_time: float) -> tuple[float, float]:
         """
         :param time_: global timer in seconds
         """
@@ -102,12 +103,12 @@ class TrapezoidProfile:
         match self.state:
             case TrapezoidProfileState.ACCELERATION:
                 velocity = self.last_velocity + self.acceleration * self.control_loop_period
-                velocity = utils.clamp(velocity, 0.0, self.max_velocity)
+                velocity = clamp(velocity, 0.0, self.max_velocity)
             case TrapezoidProfileState.MAX_VELOCITY:
                 velocity = self.max_velocity
             case TrapezoidProfileState.DECELERATION:
                 velocity = self.last_velocity - self.acceleration * self.control_loop_period
-                velocity = utils.clamp(velocity, 0.0, self.max_velocity)
+                velocity = clamp(velocity, 0.0, self.max_velocity)
             case TrapezoidProfileState.FINISHED:
                 velocity = 0.0
 
