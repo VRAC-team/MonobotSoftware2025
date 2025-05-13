@@ -6,20 +6,68 @@ from evdev import ecodes
 import queue
 import logging
 
-from robot import Robot, Gamepad, telemetry, Servo
+from robot import Robot, Gamepad, RobotParameters, HallEncoder, Odometry, PID, RampFilter, telemetry
+
+
+class TeleopController:
+    def __init__(self, params: RobotParameters):
+        self.encoder_left = HallEncoder(params)
+        self.encoder_right = HallEncoder(params)
+        self.odometry = Odometry(params)
+
+        self.pid_dist = PID(30, 1.7, 0, integrator_max=8000)  # good enough values: p=30, i=1.7 d=0
+        self.pid_theta = PID(60, 4, 0, integrator_max=3000)  # good enough values: p=60  i=4 d=0
+
+        self.ramp_theta = RampFilter(params.CONTROLLOOP_PERIOD_S, 360 * 6, 360 * 6)
+        self.ramp_dist = RampFilter(params.CONTROLLOOP_PERIOD_S, 1000, 2100)
+
+        self.lock = threading.Lock()
+
+    def on_status(self, state_error: bool, enc_left: int, enc_right: int) -> None:
+        """
+        This must be called by the motorboard callback (from on_message_received from the python-can Notifier thread)
+        """
+        with self.lock:
+            self.encoder_left.update(enc_left)
+            self.encoder_right.update(enc_right)
+            self.odometry.update(self.encoder_left.get(), -self.encoder_right.get())
+
+    def compute(self, velocity_theta: float, velocity_dist: float) -> tuple[int, int]:
+        velocity_theta_ramped = self.ramp_theta.update(velocity_theta)
+        velocity_dist_ramped = self.ramp_dist.update(velocity_dist)
+
+        with self.lock:
+            error_velocity_theta = velocity_theta_ramped - self.odometry.get_velocity_theta()
+            error_velocity_dist = velocity_dist_ramped - self.odometry.get_velocity_distance()
+
+        pwm_theta = self.pid_theta.compute(error_velocity_theta)
+        pwm_dist = self.pid_dist.compute(error_velocity_dist)
+
+        pwm_left = int(-pwm_dist + pwm_theta)
+        pwm_right = int(pwm_dist + pwm_theta)
+
+        return (pwm_left, pwm_right)
+
+    def reset_odometry(self):
+        with self.lock:
+            self.encoder_left.reset()
+            self.encoder_right.reset()
+            self.odometry.reset()
+
+    def reset_pid(self):
+        self.pid_dist.reset()
+        self.pid_theta.reset()
 
 
 class TeleopRobot(Robot):
     def __init__(self):
         super().__init__()
-        self.servoboard.servos = {
-            8: Servo(min_us=675, max_us=2125),  # ON / OFF
-            9: Servo(min_us=900, max_us=2225),  # OFF / ON
-            10: Servo(min_us=500, max_us=1650),  # ON / OFF
-            11: Servo(min_us=525, max_us=1750),  # OFF / ON
-        }
         self.gamepad = Gamepad()
         self.gamepad_updates = queue.Queue()
+
+        self.controller = TeleopController(self.params)
+        self.motorboard.set_status_callback(self.controller.on_status)
+
         self.logger = logging.getLogger(self.__class__.__name__)
 
     def set_grabber(self, grab: bool):
@@ -89,7 +137,7 @@ class TeleopRobot(Robot):
 
             gp = self.gamepad.update()
             if gp is None:
-                self.robotcontroller.reset_pid()
+                self.controller.reset_pid()
                 continue
             self.gamepad_updates.put(gp)
 
@@ -102,7 +150,7 @@ class TeleopRobot(Robot):
 
                 self.ioboard.enable(True)
                 self.servoboard.enable_power(False, True, True)
-                self.robotcontroller.reset_pid()
+                self.controller.reset_pid()
                 self.motorboard.reset_error()
 
             # handle gamepad SELECT
@@ -121,7 +169,7 @@ class TeleopRobot(Robot):
                 gp_theta = -gp.x * 180
                 gp_speed = (gp.rz - gp.z) * 800
 
-            pwm_left, pwm_right = self.robotcontroller.compute(gp_theta, gp_speed)
+            pwm_left, pwm_right = self.controller.compute(gp_theta, gp_speed)
             self.motorboard.pwm_write(pwm_left, pwm_right)
 
             # telemetry.send("vel_theta", odometry.get_velocity_theta())
@@ -139,10 +187,6 @@ class TeleopRobot(Robot):
         self.gamepad.disconnect()
 
 
-def main():
+if __name__ == "__main__":
     robot = TeleopRobot()
     robot.run()
-
-
-if __name__ == "__main__":
-    main()

@@ -2,11 +2,9 @@ import logging
 import can
 import threading
 import time
-import datetime
-import gpiod
 import signal
 
-from robot import MotorBoard, ServoBoard, IOBoard, CANIDS, RobotController, RobotParameters, telemetry, utils, can_utils
+from robot import MotorBoard, ServoBoard, Servo, IOBoard, CANIDS, GPIO, RobotParameters, telemetry, utils, can_utils
 
 
 class Robot:
@@ -21,15 +19,20 @@ class Robot:
         self.params = RobotParameters()
 
         self.stop_event = threading.Event()
-        self.t_watch_gpios = threading.Thread(target=self.thread_watch_gpios)
         self.t_can_alive = threading.Thread(target=self.thread_can_alive)
+        self.gpio = GPIO(self.params)
 
         self.motorboard = MotorBoard(self.bus)
-        self.servoboard = ServoBoard(self.bus)
+        self.servoboard = ServoBoard(
+            self.bus,
+            {
+                8: Servo(min_us=675, max_us=2125),  # ON / OFF
+                9: Servo(min_us=900, max_us=2225),  # OFF / ON
+                10: Servo(min_us=500, max_us=1650),  # ON / OFF
+                11: Servo(min_us=525, max_us=1750),  # OFF / ON
+            },
+        )
         self.ioboard = IOBoard(self.bus)
-        self.robotcontroller = RobotController(self.params)
-        self.motorboard.set_status_callback(self.robotcontroller.on_status)
-
         self.notifier = can.Notifier(self.bus, [self.motorboard, self.servoboard, self.ioboard])
 
         signal.signal(signal.SIGINT, self._signal_handler)
@@ -44,32 +47,12 @@ class Robot:
             can_utils.send(self.bus, msg)
             time.sleep(1)
 
-    def thread_watch_gpios(self):
-        with gpiod.request_lines(
-            "/dev/gpiochip0",
-            consumer="gpiod_consumer",
-            config={
-                (5, 6): gpiod.LineSettings(
-                    direction=gpiod.line.Direction.INPUT,
-                    bias=gpiod.line.Bias.DISABLED,
-                    edge_detection=gpiod.line.Edge.BOTH,
-                    debounce_period=datetime.timedelta(milliseconds=10),
-                )
-            },
-        ) as request:
-            while not self.stop_event.is_set():
-                if not request.wait_edge_events(timeout=0.5):
-                    continue
-
-                for event in request.read_edge_events():
-                    print(event)
-
     def start(self):
         telemetry.start(("192.168.0.10", 47269))
         utils.setup_logging()
         utils.setup_realtime()
 
-        self.t_watch_gpios.start()
+        self.gpio.start()
         self.t_can_alive.start()
 
         self.motorboard.reboot()
@@ -77,9 +60,10 @@ class Robot:
         self.ioboard.reboot()
 
     def stop(self):
-        self.notifier.stop()
+        self.stop_event.set()
 
-        self.t_watch_gpios.join()
+        self.notifier.stop()
         self.t_can_alive.join()
         self.bus.shutdown()
+        self.gpio.stop()
         telemetry.stop()
