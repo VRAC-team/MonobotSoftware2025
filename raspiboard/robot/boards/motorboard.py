@@ -1,6 +1,7 @@
 import can
 import struct
 import logging
+import threading
 from collections.abc import Callable
 
 import robot.can_utils as can_utils
@@ -11,6 +12,8 @@ class MotorBoard(can.Listener):
     def __init__(self, bus: can.Bus):
         self.bus = bus
         self.state_error = True
+        self.lock = threading.Lock()
+
         self.status_callback = None
         self.logger = logging.getLogger(self.__class__.__name__)
 
@@ -25,15 +28,15 @@ class MotorBoard(can.Listener):
             case CANIDS.CANID_MOTOR_STATUS:
                 state_error, enc_left, enc_right = struct.unpack(">?HH", msg.data)
 
-                if self.state_error and not state_error:
-                    self.logger.debug("state error has been reset")
+                with self.lock:
                     self.state_error = False
 
                 if self.status_callback is not None:
                     self.status_callback(state_error, enc_left, enc_right)
 
             case CANIDS.CANID_MOTOR_STATE_ERROR:
-                self.state_error = True
+                with self.lock:
+                    self.state_error = True
                 self.logger.debug("STATE_ERROR")
 
             case CANIDS.CANID_MOTOR_ALIVE:
@@ -41,12 +44,14 @@ class MotorBoard(can.Listener):
                 self.logger.log(-10, "ALIVE (first_alive_since_reboot:%s)", first_alive_since_reboot)
 
     def reboot(self) -> bool:
-        self.state_error = True
+        with self.lock:
+            self.state_error = True
         msg = can.Message(arbitration_id=CANIDS.CANID_MOTOR_REBOOT, is_extended_id=False)
         return can_utils.send(self.bus, msg)
 
     def reset_error(self) -> bool:
-        self.state_error = False
+        with self.lock:
+            self.state_error = False
         msg = can.Message(arbitration_id=CANIDS.CANID_MOTOR_RESET_STATE_ERROR, is_extended_id=False)
         return can_utils.send(self.bus, msg)
 
@@ -58,9 +63,9 @@ class MotorBoard(can.Listener):
         - right: The PWM value for the right motor. A signed 16-bit integer, ranging from -32768 to 32767.
         The value will be clamped if it falls outside this range.
         """
-
-        if self.state_error:
-            return False
+        with self.lock:
+            if self.state_error:
+                return True
 
         # Clamp the left motor PWM value to the range of signed 16-bit integers (-32768 to 32767)
         left = max(-32768, min(32767, left))
