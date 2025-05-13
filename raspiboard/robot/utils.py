@@ -13,16 +13,21 @@ class ElapsedColorFormatter(logging.Formatter):
 
     def format(self, record):
         elapsed = time.perf_counter() - self.start_time
-        minutes, seconds = divmod(elapsed, 60)
-        milliseconds = (seconds % 1) * 1000
-        formatted_time = f"{int(minutes):02}:{int(seconds):02}.{int(milliseconds):03}"
+        sec = int(elapsed)
+        msec = int((elapsed - sec) * 1000)
 
-        colored_name = f"{Fore.YELLOW}{record.name}{Fore.RESET}"
+        colored_name = f"{Fore.CYAN}{record.name}{Fore.RESET}"
 
-        level_color = Fore.RED if record.levelno == logging.ERROR else Fore.RESET
+        match record.levelno:
+            case level if level >= logging.ERROR:
+                level_color = Fore.RED
+            case level if level >= logging.WARNING:
+                level_color = Fore.YELLOW
+            case _:
+                level_color = Fore.RESET
         colored_level = f"{level_color}{record.levelname}{Fore.RESET}"
 
-        message = f"[{formatted_time}] {colored_name} {colored_level}: {record.getMessage()}"
+        message = f"[{sec:02}.{msec:03}] {colored_name} {colored_level}: {record.getMessage()}"
         return message
 
 
