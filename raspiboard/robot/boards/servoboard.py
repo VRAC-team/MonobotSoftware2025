@@ -27,15 +27,6 @@ class Servo:
         self.position = 0
 
 
-def default_servo_mapping() -> dict[int, Servo]:
-    return {
-        8: Servo(),
-        9: Servo(),
-        10: Servo(),
-        11: Servo(),
-    }
-
-
 class ServoBoard(can.Listener):
     def __init__(self, bus: can.Bus, servos: dict[int, Servo]):
         self.bus = bus
