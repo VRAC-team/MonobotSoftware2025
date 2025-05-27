@@ -10,7 +10,7 @@ from .pid import PID
 from .telemetry import telemetry
 from .filters import RampFilter
 from .gamepad import Gamepad
-from .parameters import RobotParameters
+from .parameters import RobotParameters, TeamColor
 from .gpio import GPIO
 from .lidar import Lidar
 from .robot import Robot
@@ -27,6 +27,7 @@ __all__ = [
     "RampFilter",
     "Gamepad",
     "RobotParameters",
+    "TeamColor",
     "Robot",
     "Servo",
     "Lidar",

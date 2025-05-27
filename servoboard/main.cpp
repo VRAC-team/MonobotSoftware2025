@@ -117,9 +117,10 @@ int main()
     // let's wait for the arduino nano bootleader to wake up
     modm::delay_ms(3000);
 
-    Adc1::initialize(Adc1::ClockMode::SynchronousPrescaler1, Adc1::ClockSource::SystemClock, Adc1::Prescaler::Disabled, Adc1::CalibrationMode::SingleEndedInputsMode, true);
+    power3_adc::setInput(Gpio::InputType::Floating);
+    Adc1::initialize(Adc1::ClockMode::SynchronousPrescaler4, Adc1::ClockSource::SystemClock, Adc1::Prescaler::Div4, Adc1::CalibrationMode::SingleEndedInputsMode, true);
     Adc1::connect<power3_adc_chan>();
-    Adc1::setPinChannel<power3_adc>(Adc1::SampleTime::Cycles48);
+    Adc1::setPinChannel<power3_adc>(Adc1::SampleTime::Cycles248);
 
     I2cMaster3::connect<GpioB4::Sda, GpioA7::Scl>();
     I2cMaster3::initialize<SystemClock, 400_kHz>();
@@ -148,7 +149,7 @@ int main()
     bool first_alive_since_reboot = true;
     modm::PeriodicTimer timer_alive { 1s };
 
-    modm::PeriodicTimer power_current_measuer_timer { 1s };
+    modm::PeriodicTimer power_current_measuer_timer { 200ms };
 
     while (true) {
         if (blinker.execute()) {
@@ -165,42 +166,37 @@ int main()
         }
 
         if (power_current_measuer_timer.execute()) {
-            // Adc1::connect<power1_adc_chan>();
-            // Adc1::setPinChannel<power1_adc>(Adc1::SampleTime::Cycles13);
-            // Adc1::startConversion();
-            // while (!Adc1::isConversionFinished()) { }
-            // uint16_t adc1 = Adc1::getValue();
+            uint8_t adc_values[3];
 
-            // Adc1::connect<power2_adc_chan>();
-            // Adc1::setPinChannel<power2_adc>(Adc1::SampleTime::Cycles13);
-            // Adc1::startConversion();
-            // while (!Adc1::isConversionFinished()) { }
-            // uint16_t adc2 = Adc1::getValue();
+            Adc1::startConversion();
+            while (!Adc1::isConversionFinished()) { }
+            adc_values[0] = Adc1::getValue();
 
-            // Adc1::connect<power3_adc_chan>();
-            // Adc1::setPinChannel<power3_adc>(Adc1::SampleTime::Cycles13);
-            // Adc1::startConversion();
-            // while (!Adc1::isConversionFinished()) { }
-            // uint16_t adc3 = Adc1::getValue();
+            Adc1::startConversion();
+            while (!Adc1::isConversionFinished()) { }
+            adc_values[1] = Adc1::getValue();
 
-            // uint8_t adc1 = 0;
-            // uint8_t adc2 = 0;
-            // uint8_t adc3 = 0;
+            Adc1::startConversion();
+            while (!Adc1::isConversionFinished()) { }
+            adc_values[2] = Adc1::getValue();
 
-            // uint8_t power = power1_oe::read() | power2_oe::read() << 1 | power3_oe::read() << 2;
+            uint8_t powers = power1_oe::read() | power2_oe::read() << 1 | power3_oe::read() << 2;
 
-            modm::can::Message msg(CANID_SERVO_STATUS, 0);
+            MODM_LOG_INFO << "ADC0:" << adc_values[0] << modm::endl;
+            MODM_LOG_INFO << "ADC1:" << adc_values[1] << modm::endl;
+            MODM_LOG_INFO << "ADC2:" << adc_values[2] << modm::endl << modm::endl;
+            MODM_LOG_INFO.flush();
+
+            modm::can::Message msg(CANID_SERVO_STATUS, 7);
             msg.setExtended(false);
-            // msg.data[0] = adc1 << 8 & 0xFF;
-            // msg.data[1] = adc1 & 0xFF;
-            // msg.data[2] = adc2 << 8 & 0xFF;
-            // msg.data[3] = adc2 & 0xFF;
-            // msg.data[4] = adc3 << 8 & 0xFF;
-            // msg.data[5] = adc3 & 0xFF;
-            // msg.data[6] = power;
+            msg.data[0] = adc_values[0] << 8 & 0xFF;
+            msg.data[1] = adc_values[0] & 0xFF;
+            msg.data[2] = adc_values[1] << 8 & 0xFF;
+            msg.data[3] = adc_values[1] & 0xFF;
+            msg.data[4] = adc_values[2] << 8 & 0xFF;
+            msg.data[5] = adc_values[2] & 0xFF;
+            msg.data[6] = powers;
             Can1::sendMessage(msg);
-
-            // MODM_LOG_INFO.printf("adc1: %d %d %d\n", adc1, adc2, adc3);
         }
 
         if (!Can1::isMessageAvailable()) {

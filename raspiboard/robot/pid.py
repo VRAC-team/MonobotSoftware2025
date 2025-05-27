@@ -1,5 +1,5 @@
 class PID:
-    def __init__(self, kp: float, ki: float, kd: float, integrator_max: float = 10000):
+    def __init__(self, kp: float, ki: float, kd: float, integrator_max: float | None = 1000):
         self.kp = kp
         self.ki = ki
         self.kd = kd
@@ -15,10 +15,11 @@ class PID:
     def compute(self, error: float) -> float:
         self.integrator += error
 
-        if self.integrator > self.integrator_max:
-            self.integrator = self.integrator_max
-        elif self.integrator < -self.integrator_max:
-            self.integrator = -self.integrator_max
+        if self.integrator_max is not None:
+            if self.integrator > self.integrator_max:
+                self.integrator = self.integrator_max
+            elif self.integrator < -self.integrator_max:
+                self.integrator = -self.integrator_max
 
         output = self.kp * error
         output += self.ki * self.integrator

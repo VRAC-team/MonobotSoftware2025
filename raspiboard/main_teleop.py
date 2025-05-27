@@ -79,14 +79,19 @@ class TeleopRobot(Robot):
     def thread_gamepad_actions(self):
         # servo_write_angle, goto_abs, home are blocking for a duration of can.send each (approx 1ms), ence why this thread is required
 
-        ELEVATOR_ACCEL = self.params.STEPPER_STEPS_PER_REV * 40
-        ELEVATOR_MAXVEL = self.params.STEPPER_STEPS_PER_REV * 4
-        ELEVATOR_POS_LOW = 0
-        ELEVATOR_POS_HIGH = self.params.STEPPER_STEPS_PER_REV * 3
-        ELEVATOR_HOMING_MAX_STEPS = self.params.STEPPER_STEPS_PER_REV * 10
+        ELEVATOR_ACCEL = int(self.params.STEPPER_STEPS_PER_REV * 10)
+        ELEVATOR_MAXVEL = int(self.params.STEPPER_STEPS_PER_REV * 2)
+        ELEVATOR_MAXVEL_LOWER = int(self.params.STEPPER_STEPS_PER_REV * 4)
+        ELEVATOR_POS_LOW = -7900
+        ELEVATOR_POS_HIGH = -1100
+        ELEVATOR_POS_HIGH_WITH_MARGIN = -800
+
+        ELEVATOR_HOMING_MAX_STEPS = int(self.params.STEPPER_STEPS_PER_REV * 10)
 
         led_pattern_id = 0
         grabber_state = False
+
+        # step_counter = 0
 
         while not self.stop_event.is_set():
             try:
@@ -108,12 +113,27 @@ class TeleopRobot(Robot):
                 self.set_grabber(grabber_state)
                 grabber_state = not grabber_state
 
+            # if ecodes.BTN_B in gp.keys_pressed:
+            #     step_counter -= 20
+            #     self.logger.debug("step_counter:%d", step_counter)
+            #     self.ioboard.goto_abs(4, step_counter, ELEVATOR_ACCEL, ELEVATOR_MAXVEL)
+            # if ecodes.BTN_X in gp.keys_pressed:
+            #     step_counter += 20
+            #     self.logger.debug("step_counter:%d", step_counter)
+            #     self.ioboard.goto_abs(4, step_counter, ELEVATOR_ACCEL, ELEVATOR_MAXVEL)
+
             # handle gamepad DPAD
-            elif ecodes.BTN_DPAD_UP in gp.keys_pressed:
+            if ecodes.BTN_DPAD_UP in gp.keys_pressed:
+                self.ioboard.goto_abs(4, ELEVATOR_POS_HIGH_WITH_MARGIN, ELEVATOR_ACCEL, ELEVATOR_MAXVEL)
+                self.logger.debug("goto pos high with margin")
+            elif ecodes.BTN_DPAD_LEFT in gp.keys_pressed:
                 self.ioboard.goto_abs(4, ELEVATOR_POS_HIGH, ELEVATOR_ACCEL, ELEVATOR_MAXVEL)
+                self.logger.debug("goto pos high")
             elif ecodes.BTN_DPAD_DOWN in gp.keys_pressed:
-                self.ioboard.goto_abs(4, ELEVATOR_POS_LOW, ELEVATOR_ACCEL, ELEVATOR_MAXVEL)
+                self.logger.debug("goto pos low")
+                self.ioboard.goto_abs(4, ELEVATOR_POS_LOW, ELEVATOR_ACCEL, ELEVATOR_MAXVEL_LOWER)
             elif ecodes.BTN_DPAD_RIGHT in gp.keys_pressed:
+                self.logger.debug("starting homing")
                 self.ioboard.home(4, ELEVATOR_HOMING_MAX_STEPS, 15, False)
 
     def run(self):

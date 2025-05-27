@@ -44,6 +44,7 @@ class MotorBoard(can.Listener):
                 self.logger.log(-10, "ALIVE (first_alive_since_reboot:%s)", first_alive_since_reboot)
 
     def reboot(self) -> bool:
+        self.logger.debug("reboot")
         with self.lock:
             self.state_error = True
         msg = can.Message(arbitration_id=CANIDS.CANID_MOTOR_REBOOT, is_extended_id=False)

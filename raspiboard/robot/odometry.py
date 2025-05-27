@@ -39,6 +39,11 @@ class Odometry:
                 self.y_mm = y_mm
             if theta_rad is not None:
                 self.theta_rad = theta_rad
+            self.last_ticks_left = 0
+            self.last_ticks_right = 0
+            self.distance_mm = 0.0
+            self.filter_vel_dist.reset()
+            self.filter_vel_theta.reset()
 
     def update(self, ticks_left: int, ticks_right: int) -> None:
         delta_left = (ticks_left - self.last_ticks_left) * self.k_wheel
@@ -92,4 +97,4 @@ class Odometry:
             return self.filter_vel_dist.get()
 
     def __str__(self):
-        return f"Odometry(x={self.x_mm:.1f}, y={self.y_mm:.1f}, tehta_deg={self.get_theta_deg():.1f})"
+        return f"Odometry(x={self.x_mm:.1f}mm, y={self.y_mm:.1f}mm, theta={self.get_theta_deg():.1f}deg)"

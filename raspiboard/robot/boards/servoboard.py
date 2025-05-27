@@ -67,10 +67,12 @@ class ServoBoard(can.Listener):
                 self.logger.log(-10, "ALIVE (first_alive_since_reboot:%s)", first_alive_since_reboot)
 
     def reboot(self) -> bool:
+        self.logger.debug("reboot")
         msg = can.Message(arbitration_id=CANIDS.CANID_SERVO_REBOOT, is_extended_id=False)
         return can_utils.send(self.bus, msg)
 
     def enable_power(self, power1: bool, power2: bool, power3: bool) -> bool:
+        self.logger.debug("enable power %s %s %s", power1, power2, power3)
         msg = can.Message(
             arbitration_id=CANIDS.CANID_SERVO_ENABLE_POWER,
             data=[power1, power2, power3],

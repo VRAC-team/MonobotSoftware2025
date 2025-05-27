@@ -28,7 +28,7 @@ class Robot:
             {
                 8: Servo(min_us=675, max_us=2125),  # ON / OFF
                 9: Servo(min_us=900, max_us=2225),  # OFF / ON
-                10: Servo(min_us=500, max_us=1650),  # ON / OFF
+                10: Servo(min_us=500, max_us=1750),  # ON / OFF
                 11: Servo(min_us=525, max_us=1750),  # OFF / ON
             },
         )
@@ -62,8 +62,8 @@ class Robot:
     def stop(self):
         self.stop_event.set()
 
-        self.notifier.stop()
-        self.t_can_alive.join()
+        self.notifier.stop(timeout=1)
+        self.t_can_alive.join(timeout=1)
         self.bus.shutdown()
         self.gpio.stop()
         telemetry.stop()

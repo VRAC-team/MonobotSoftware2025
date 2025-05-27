@@ -257,10 +257,12 @@ class IOBoard(can.Listener):
                 self.logger.log(-10, "ALIVE (first_alive_since_reboot:%s)", first_alive_since_reboot)
 
     def reboot(self) -> bool:
+        self.logger.debug("reboot")
         msg = can.Message(arbitration_id=CANIDS.CANID_IO_REBOOT, is_extended_id=False)
         return can_utils.send(self.bus, msg)
 
     def enable(self, state: bool) -> bool:
+        self.logger.debug("enable: %s", state)
         msg = can.Message(
             arbitration_id=CANIDS.CANID_IO_STEPPER_ENABLE,
             data=[state],
