@@ -37,7 +37,7 @@ const float WHEEL_CIRCUMFERENCE = 43.15f * PI; // wheel diameter in mm
 const float WHEEL_SPACING = 111.2f; // distance between wheels in mm
 const int STEPS_PER_REVOLUTION = 200*16;
 
-const int MAX_SPEED = 6000; // MAX 6000 in step/s
+const int MAX_SPEED = 7000; // MAX 6000 in step/s
 const int MAX_ACCEL = 8000; // MAX 8000 in step/s
 
 
@@ -47,8 +47,11 @@ bool g_stop_on_sick = true;
 bool g_stop_on_tof = true;
 uint16_t g_stop_tof_distance = 200;
 
-
-int8_t g_team = 1; // 1 for yellow, -1 for blue
+enum TeamColor {
+  BLUE = -1,
+  YELLOW = 1,
+};
+enum TeamColor g_team = TeamColor::BLUE;
 long g_start_time = 0;
 
 Servo servo1, servo2;
@@ -117,23 +120,29 @@ void wait_first_starter_insertion() {
   }
 }
 
-void wait_start_or_select_team() {
-  neopixelWrite(GPIO_LED_RGB, 200, 170, 0); //default yellow team
+void update_team_led() {
+  if (g_team == TeamColor::BLUE) {
+    neopixelWrite(GPIO_LED_RGB, 0, 0, 200);
+  }
+  else {
+    neopixelWrite(GPIO_LED_RGB, 200, 170, 0);
+  }
+}
 
+void wait_start_or_select_team() {
   while (true) {
     if (!is_starter_present()) {
       return;
     }
 
     if (is_team_side_pressed()) {
-      if (g_team == 1) {
-        g_team = -1;
-        neopixelWrite(GPIO_LED_RGB, 0, 0, 200);
+      if (g_team == TeamColor::BLUE) {
+        g_team = TeamColor::YELLOW;
       }
       else {
-        g_team = 1;
-        neopixelWrite(GPIO_LED_RGB, 200, 170, 0);
+        g_team = TeamColor::BLUE;
       }
+      update_team_led();
       delay(200); //debounce
     }
 
@@ -164,22 +173,23 @@ void wait_last_fifteen_seconds() {
 void end_match() {
   digitalWrite(GPIO_NEN, HIGH);
 
-  digitalWrite(GPIO_LED_DANCE, HIGH);
-  servo1.write(180); //sorti
-  servo2.write(0); //sorti
-  delay(400);
-
   // dance
   while (true) {
     digitalWrite(GPIO_LED_DANCE, HIGH);
     servo1.write(0+45);
-    servo2.write(180-45);
-    delay(1000);
+    delay(2000);
 
     digitalWrite(GPIO_LED_DANCE, LOW);
+    servo2.write(180-45);
+    delay(2000);
+
+    digitalWrite(GPIO_LED_DANCE, HIGH);
     servo1.write(180-45);
+    delay(2000);
+
+    digitalWrite(GPIO_LED_DANCE, LOW);
     servo2.write(0+45);
-    delay(1000);
+    delay(2000);
   }
 }
 
@@ -279,20 +289,80 @@ void test_board() {
 
 }
 
-void strat_superstar() {
-  g_stop_on_sick = false;
-  g_stop_on_tof = true;
-  do_line(-1250);
-  g_stop_on_tof = false;
+void strat_superstar_marche_avant() {
   g_stop_on_sick = true;
-  do_rotate(-90);
+  g_stop_on_tof = false;
+  g_stop_tof_distance = 100;
+  do_line(1100);
+  do_rotate(90);
   do_line(-130); // homing vers la zone de calcul
   do_line(350);
+}
+
+void strat_groupie2() {
+  stepper_left.setAcceleration(STEPS_PER_REVOLUTION*12);
+  stepper_left.setMaxSpeed(STEPS_PER_REVOLUTION*6);
+  stepper_right.setAcceleration(STEPS_PER_REVOLUTION*12);
+  stepper_right.setMaxSpeed(STEPS_PER_REVOLUTION*6);
+  g_stop_on_sick = true;
+  g_stop_on_tof = false;
+  g_stop_tof_distance = 50;
+
+  delay(3000);
+
+  do_line(200);
+  do_rotate(50);
+  do_line(450);
+  do_rotate(-50);
+  do_line(450);
+}
+
+void strat_groupie4() {
+  stepper_left.setAcceleration(STEPS_PER_REVOLUTION*15);
+  stepper_left.setMaxSpeed(STEPS_PER_REVOLUTION*7);
+  stepper_right.setAcceleration(STEPS_PER_REVOLUTION*15);
+  stepper_right.setMaxSpeed(STEPS_PER_REVOLUTION*7);
+  g_stop_on_sick = true;
+  g_stop_on_tof = false;
+  g_stop_tof_distance = 50;
+
+  do_line(200);
+  do_rotate(50);
+  do_line(330);
+  do_rotate(-50);
+  do_line(1400);
+}
+
+void strat_groupie3() {
+  g_stop_on_sick = true;
+  g_stop_on_tof = false;
+  g_stop_tof_distance = 50;
+
+  delay(1500);
+
+  stepper_left.setAcceleration(STEPS_PER_REVOLUTION*10);
+  stepper_left.setMaxSpeed(STEPS_PER_REVOLUTION*5);
+  stepper_right.setAcceleration(STEPS_PER_REVOLUTION*10);
+  stepper_right.setMaxSpeed(STEPS_PER_REVOLUTION*5);
+
+  do_line(200);
+  do_rotate(50);
+  do_line(330);
+  do_rotate(-50);
+
+  stepper_left.setAcceleration(STEPS_PER_REVOLUTION*12);
+  stepper_left.setMaxSpeed(STEPS_PER_REVOLUTION*7);
+  stepper_right.setAcceleration(STEPS_PER_REVOLUTION*12);
+  stepper_right.setMaxSpeed(STEPS_PER_REVOLUTION*7);
+
+  do_line(1000);
 }
 
 void setup()
 {
   Serial.begin(115200);
+
+  Serial.println("hello world");
 
   pinMode(GPIO_TOR1, INPUT);
   pinMode(GPIO_TOR2, INPUT);
@@ -340,10 +410,9 @@ void setup()
   pinMode(GPIO_SERVO2, OUTPUT);
   servo1.attach(GPIO_SERVO1);
   servo2.attach(GPIO_SERVO2);
-  servo1.write(0); //range
-  servo2.write(180); //range
-  //servo1.write(180); //sorti
-  //servo2.write(0); //sorti
+  servo1.write(0);
+  delay(300);
+  servo2.write(180);
 
   tof_init();
 
@@ -364,7 +433,16 @@ void setup()
   switch (g_board_id)
   {
     case 1:
-      strat_superstar();
+      strat_superstar_marche_avant();
+      break;
+    case 2:
+      strat_groupie2();
+      break;
+    case 3:
+      strat_groupie3();
+      break;
+    case 4:
+      strat_groupie4();
       break;
   }
   
