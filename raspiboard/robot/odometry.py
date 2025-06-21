@@ -8,28 +8,40 @@ from robot.parameters import RobotParameters
 class Odometry:
     def __init__(self, params: RobotParameters):
         self.params = params
-        self.k_wheel = self.params.ODOMETRY_WHEEL_PERIMETER_MM / self.params.ODOMETRY_TICKS_PER_REV
+
+        self.k_dist = self.params.ODOMETRY_WHEEL_PERIMETER / self.params.ODOMETRY_TICKS_PER_REV
+        self.k_theta = (
+            self.params.ODOMETRY_WHEEL_PERIMETER
+            / self.params.ODOMETRY_TICKS_PER_REV
+            / self.params.ODOMETRY_WHEEL_SPACING
+        )
 
         self.last_ticks_left = 0
         self.last_ticks_right = 0
+        self.theta_ticks = 0
+        self.theta_rad = 0.0
+        self.theta_deg = 0.0
+        self.distance_ticks = 0
+        self.distance_mm = 0.0
         self.x_mm = 0.0
         self.y_mm = 0.0
-        self.theta_rad = 0.0
-        self.distance_mm = 0.0
-        self.filter_vel_dist = MovingAverageFilter(window_size=5)
-        self.filter_vel_theta = MovingAverageFilter(window_size=5)
+        self.avg_vel_dist = MovingAverageFilter(window_size=2)
+        self.avg_vel_theta = MovingAverageFilter(window_size=2)
 
         self.lock = threading.Lock()
 
     def reset(self):
         self.last_ticks_left = 0
         self.last_ticks_right = 0
+        self.theta_ticks = 0
+        self.theta_rad = 0.0
+
+        self.distance_ticks = 0
+        self.distance_mm = 0.0
         self.x_mm = 0.0
         self.y_mm = 0.0
-        self.theta_rad = 0.0
-        self.distance_mm = 0.0
-        self.filter_vel_dist.reset()
-        self.filter_vel_theta.reset()
+        self.avg_vel_dist.reset()
+        self.avg_vel_theta.reset()
 
     def set(self, x_mm: float = None, y_mm: float = None, theta_rad: float = None):
         with self.lock:
@@ -42,31 +54,35 @@ class Odometry:
             self.last_ticks_left = 0
             self.last_ticks_right = 0
             self.distance_mm = 0.0
-            self.filter_vel_dist.reset()
-            self.filter_vel_theta.reset()
+            self.avg_vel_dist.reset()
+            self.avg_vel_theta.reset()
 
     def update(self, ticks_left: int, ticks_right: int) -> None:
-        delta_left = (ticks_left - self.last_ticks_left) * self.k_wheel
-        delta_right = (ticks_right - self.last_ticks_right) * self.k_wheel
+        delta_left_ticks = ticks_left - self.last_ticks_left
+        delta_right_ticks = ticks_right - self.last_ticks_right
 
-        delta_theta = (delta_right - delta_left) / self.params.ODOMETRY_WHEEL_SPACING_MM
-        delta_distance = (delta_right + delta_left) / 2.0
+        delta_theta_ticks = delta_right_ticks - delta_left_ticks
+        delta_theta_rad = delta_theta_ticks * self.k_theta
+        vel_theta_deg = math.degrees(delta_theta_rad) / self.params.CONTROLLOOP_PERIOD
 
-        delta_distance_x = delta_distance * math.cos(self.theta_rad)
-        delta_distance_y = delta_distance * math.sin(self.theta_rad)
-
-        vel_theta = delta_theta / self.params.CONTROLLOOP_PERIOD_S
-        vel_dist = delta_distance / self.params.CONTROLLOOP_PERIOD_S
+        delta_distance_ticks = (delta_right_ticks + delta_left_ticks) / 2
+        delta_distance_mm = delta_distance_ticks * self.k_dist
+        vel_dist_mm = delta_distance_mm / self.params.CONTROLLOOP_PERIOD
 
         with self.lock:
+            self.theta_ticks += delta_theta_ticks
+
+            theta_rad = self.theta_ticks * self.k_theta
+
+            self.theta_deg = math.degrees(theta_rad)
+            self.distance_ticks += delta_distance_ticks
+            self.distance_mm = self.distance_ticks * self.k_dist
+            self.x_mm += delta_distance_mm * math.cos(theta_rad)
+            self.y_mm += delta_distance_mm * math.sin(theta_rad)
+            self.avg_vel_dist.update(vel_dist_mm)
+            self.avg_vel_theta.update(vel_theta_deg)
             self.last_ticks_left = ticks_left
             self.last_ticks_right = ticks_right
-            self.x_mm += delta_distance_x
-            self.y_mm += delta_distance_y
-            self.theta_rad += delta_theta
-            self.distance_mm += delta_distance
-            self.filter_vel_dist.update(vel_dist)
-            self.filter_vel_theta.update(vel_theta)
 
     def get_x(self) -> float:
         with self.lock:
@@ -76,25 +92,21 @@ class Odometry:
         with self.lock:
             return self.y_mm
 
-    def get_theta_rad(self) -> float:
+    def get_theta(self) -> float:
         with self.lock:
-            return self.theta_rad
+            return self.theta_deg
 
-    def get_theta_deg(self) -> float:
+    def get_theta_vel(self) -> float:
         with self.lock:
-            return self.theta_rad * 180.0 / math.pi
+            return self.avg_vel_theta.get()
 
-    def get_velocity_theta(self) -> float:
-        with self.lock:
-            return self.filter_vel_theta.get() * 180.0 / math.pi
-
-    def get_distance(self) -> float:
+    def get_dist(self) -> float:
         with self.lock:
             return self.distance_mm
 
-    def get_velocity_distance(self) -> float:
+    def get_dist_vel(self) -> float:
         with self.lock:
-            return self.filter_vel_dist.get()
+            return self.avg_vel_dist.get()
 
     def __str__(self):
-        return f"Odometry(x={self.x_mm:.1f}mm, y={self.y_mm:.1f}mm, theta={self.get_theta_deg():.1f}deg)"
+        return f"Odometry(x={self.x_mm:.1f}mm, y={self.y_mm:.1f}mm, theta={self.theta_deg:.1f}deg)"

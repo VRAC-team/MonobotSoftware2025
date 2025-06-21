@@ -22,13 +22,17 @@ class MovingAverageFilter:
         self.window_size = window_size
 
         self.values = collections.deque()
-        self.values.append(0)
         self.sum = 0
 
     def reset(self):
         self.values.clear()
-        self.values.append(0)
         self.sum = 0
+
+    def count(self) -> int:
+        return len(self.values)
+
+    def is_full(self) -> bool:
+        return len(self.values) == self.window_size
 
     def update(self, value: int):
         self.values.append(value)
@@ -39,13 +43,15 @@ class MovingAverageFilter:
             self.sum -= removed
 
     def get(self) -> float:
+        if not self.values:
+            return 0.0
         return self.sum / len(self.values)
 
 
 class RampFilter:
     def __init__(self, control_loop_period: float, accel_rate: float, decel_rate: float):
-        self.accel_rate = accel_rate * control_loop_period
-        self.decel_rate = decel_rate * control_loop_period
+        self.accel_rate = accel_rate
+        self.decel_rate = decel_rate
         self.current_value = 0.0
 
     def reset(self):

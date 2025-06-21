@@ -15,11 +15,15 @@ class TeleopController:
         self.encoder_right = HallEncoder(params)
         self.odometry = Odometry(params)
 
-        self.pid_dist = PID(30, 1.7, 0, integrator_max=8000)  # good enough values: p=30, i=1.7 d=0
-        self.pid_theta = PID(60, 4, 0, integrator_max=3000)  # good enough values: p=60  i=4 d=0
+        self.pid_dist = PID(
+            30, 1.7, 0, params.CONTROLLOOP_FREQUENCY, integrator_max=8000
+        )  # good enough values: p=30, i=1.7 d=0
+        self.pid_theta = PID(
+            60, 4, 0, params.CONTROLLOOP_FREQUENCY, integrator_max=3000
+        )  # good enough values: p=60  i=4 d=0
 
-        self.ramp_theta = RampFilter(params.CONTROLLOOP_PERIOD_S, 360 * 6, 360 * 6)
-        self.ramp_dist = RampFilter(params.CONTROLLOOP_PERIOD_S, 1000, 2100)
+        self.ramp_theta = RampFilter(params.CONTROLLOOP_PERIOD, 360 * 6, 360 * 6)
+        self.ramp_dist = RampFilter(params.CONTROLLOOP_PERIOD, 1000, 2100)
 
         self.lock = threading.Lock()
 
@@ -37,8 +41,8 @@ class TeleopController:
         velocity_dist_ramped = self.ramp_dist.update(velocity_dist)
 
         with self.lock:
-            error_velocity_theta = velocity_theta_ramped - self.odometry.get_velocity_theta()
-            error_velocity_dist = velocity_dist_ramped - self.odometry.get_velocity_distance()
+            error_velocity_theta = velocity_theta_ramped - self.odometry.get_velocity_theta_rad()
+            error_velocity_dist = velocity_dist_ramped - self.odometry.get_dist_vel()
 
         pwm_theta = self.pid_theta.compute(error_velocity_theta)
         pwm_dist = self.pid_dist.compute(error_velocity_dist)
@@ -176,7 +180,7 @@ class TeleopRobot(Robot):
             # handle gamepad SELECT
             elif ecodes.BTN_SELECT in gp.keys_pressed:
                 self.logger.info("PAUSE")
-                time.sleep(self.params.CONTROLLOOP_PERIOD_S * 2)
+                time.sleep(self.params.CONTROLLOOP_PERIOD * 2)
                 self.ioboard.enable(False)
                 self.servoboard.enable_power(False, False, False)
 
@@ -201,7 +205,7 @@ class TeleopRobot(Robot):
             # try our best to execute the function exactly at CONTROLLOOP_FREQ_HZ
             elapsed_time = time.monotonic() - start_time
             last_elapsed_time = elapsed_time * 1000.0
-            timeout = max(0, self.params.CONTROLLOOP_PERIOD_S - elapsed_time)
+            timeout = max(0, self.params.CONTROLLOOP_PERIOD - elapsed_time)
             select.select([], [], [], timeout)
 
         self.gamepad.disconnect()

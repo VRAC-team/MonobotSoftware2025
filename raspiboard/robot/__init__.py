@@ -5,8 +5,16 @@ from .boards.servoboard import ServoBoard, Servo
 from .can_identifiers import CANIDS
 from .hall_encoder import HallEncoder
 from .odometry import Odometry
-from .trajectory_manager import TrajectoryManager, RotateVelocity, DistanceVelocity
-from .pid import PID
+from .trajectory_manager import (
+    TrajectoryManager,
+    ThetaParams,
+    DistanceParams,
+    MotionFinishedState,
+    RobotOrientation,
+    RotationDirection,
+)
+from .time_trapezoid_profile import TimeTrapezoidProfile
+from .pid import PID, PID_RCVA
 from .telemetry import telemetry
 from .filters import RampFilter
 from .gamepad import Gamepad
@@ -21,19 +29,23 @@ __all__ = [
     "ServoBoard",
     "HallEncoder",
     "Odometry",
-    "RobotController",
     "CANIDS",
     "PID",
+    "PID_RCVA",
     "RampFilter",
     "Gamepad",
     "RobotParameters",
+    "RobotOrientation",
+    "RotationDirection",
     "TeamColor",
     "Robot",
     "Servo",
     "Lidar",
     "GPIO",
     "TrajectoryManager",
-    "RotateVelocity",
-    "DistanceVelocity",
+    "MotionFinishedState",
+    "TimeTrapezoidProfile",
+    "ThetaParams",
+    "DistanceParams",
     "telemetry",
 ]

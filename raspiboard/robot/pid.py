@@ -1,11 +1,14 @@
 class PID:
-    def __init__(self, kp: float, ki: float, kd: float, integrator_max: float | None = 1000):
+    def __init__(self, kp: float, ki: float, kd: float, frequency: float, integrator_max: float | None = 1000):
         self.kp = kp
-        self.ki = ki
-        self.kd = kd
+        self.ki = ki / frequency
+        self.kd = kd * frequency
         self.integrator_max = integrator_max
 
         self.last_error = 0.0
+        self.integrator = 0.0
+
+    def reset_integrator(self):
         self.integrator = 0.0
 
     def reset(self):
@@ -26,5 +29,17 @@ class PID:
         output += self.kd * (error - self.last_error)
 
         self.last_error = error
+
+        return output
+
+
+class PID_RCVA:
+    def __init__(self, kp: float, kd: float, frequency: float):
+        self.kp = kp
+        self.kd = kd * frequency
+
+    def compute(self, error: float, velocity: float) -> float:
+        output = self.kp * error
+        output -= self.kd * velocity
 
         return output

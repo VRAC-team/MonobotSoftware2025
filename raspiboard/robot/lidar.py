@@ -84,7 +84,7 @@ class Lidar:
         #         self.map_grid[y, x] = 255  # mark enemy pixel
 
         # emergency stop
-        decel_time = math.fabs(self.odometry.get_velocity_distance()) / self.emergency_deceleration
+        decel_time = math.fabs(self.odometry.get_dist_vel()) / self.emergency_deceleration
         decel_dist = 0.5 * self.emergency_deceleration * decel_time**2
         decel_dist *= 0.5  # safety margins
 

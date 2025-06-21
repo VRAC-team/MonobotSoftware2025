@@ -8,9 +8,9 @@ def test_lidar():
     odo = Odometry(params)
     odo.set(1500, 1000, 0)
     for i in range(5):
-        odo.filter_vel_dist.update(200)
+        odo.avg_vel_dist.update(200)
     lidar = Lidar(odo)
-    print("lidar vel dist:", odo.get_velocity_distance())
+    print("lidar vel dist:", odo.get_dist_vel())
 
     lidar.start()
 
