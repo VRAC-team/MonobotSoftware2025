@@ -1,0 +1,33 @@
+import math
+
+from robot import RobotConfig
+from robot.boards import Servo
+
+
+class RobotConfig2025(RobotConfig):
+    CONTROLLOOP_FREQUENCY = 200
+
+    ODOMETRY_WHEEL_PERIMETER = 52.42 * math.pi
+    ODOMETRY_WHEEL_SPACING = 256.5
+    ODOMETRY_TICKS_PER_REV = 16384
+
+    BLOCKED_TOTALTIME_COEF = 3.0
+
+    FORCEBRAKE_DIST_DECEL = 3000
+    FORCEBRAKE_THETA_DECEL = 1500
+
+    THETA_FINISHED_WINDOW = 0.5
+    DIST_FINISHED_WINDOW = 1
+
+    WAYPOINT_XY_MIN_RADIUS = 150.0
+
+    STEPPER_STEPS_PER_REV = 200 * 8
+
+    PUMP_AUTO_CLOSE_VALVE_AFTER = 0.5
+
+    GPIO_START = 5
+    GPIO_SHUTDOWN = 6
+
+    TELEMETRY_HOST_ADDR = ("192.168.0.10", 47269)
+
+    SERVOS = {i: Servo() for i in range(18)}

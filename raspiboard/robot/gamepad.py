@@ -36,9 +36,7 @@ class Gamepad:
     def connect(self) -> bool:
         devices = [evdev.InputDevice(path) for path in evdev.list_devices()]
         for dev in devices:
-            name_match = (
-                self.device_name in dev.name if self.device_name else "Controller" in dev.name or "Gamepad" in dev.name
-            )
+            name_match = self.device_name in dev.name if self.device_name else "Controller" in dev.name or "Gamepad" in dev.name
             if name_match:
                 try:
                     dev.grab()

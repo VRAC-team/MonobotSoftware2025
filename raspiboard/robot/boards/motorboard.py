@@ -1,15 +1,16 @@
-import can
 import struct
 import logging
 import threading
 from collections.abc import Callable
 
-import robot.can_utils as can_utils
+from robot.can_utils import can_send
 from robot.can_identifiers import CANIDS
+
+import can
 
 
 class MotorBoard(can.Listener):
-    def __init__(self, bus: can.Bus):
+    def __init__(self, bus: can.BusABC):
         self.bus = bus
         self.state_error = True
         self.lock = threading.Lock()
@@ -37,7 +38,7 @@ class MotorBoard(can.Listener):
             case CANIDS.CANID_MOTOR_STATE_ERROR:
                 with self.lock:
                     self.state_error = True
-                self.logger.debug("STATE_ERROR")
+                self.logger.error("STATE_ERROR")
 
             case CANIDS.CANID_MOTOR_ALIVE:
                 (first_alive_since_reboot,) = struct.unpack(">?", msg.data)
@@ -48,13 +49,14 @@ class MotorBoard(can.Listener):
         with self.lock:
             self.state_error = True
         msg = can.Message(arbitration_id=CANIDS.CANID_MOTOR_REBOOT, is_extended_id=False)
-        return can_utils.send(self.bus, msg)
+        return can_send(self.bus, msg)
 
     def reset_error(self) -> bool:
+        self.logger.debug("reset_error")
         with self.lock:
             self.state_error = False
         msg = can.Message(arbitration_id=CANIDS.CANID_MOTOR_RESET_STATE_ERROR, is_extended_id=False)
-        return can_utils.send(self.bus, msg)
+        return can_send(self.bus, msg)
 
     def pwm_write(self, left: int, right: int) -> bool:
         """
@@ -74,4 +76,4 @@ class MotorBoard(can.Listener):
 
         data = bytearray(left.to_bytes(2, signed=True) + right.to_bytes(2, signed=True))
         msg = can.Message(arbitration_id=CANIDS.CANID_MOTOR_PWM_WRITE, data=data, is_extended_id=False)
-        return can_utils.send(self.bus, msg)
+        return can_send(self.bus, msg)

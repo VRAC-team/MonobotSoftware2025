@@ -1,20 +1,18 @@
 import math
 import threading
 
-from robot.filters import MovingAverageFilter
-from robot.parameters import RobotParameters
+from .filters import MovingAverageFilter
+from .robot_config import RobotConfig
 
 
 class Odometry:
-    def __init__(self, params: RobotParameters):
-        self.params = params
+    def __init__(self, config: RobotConfig):
+        self.config = config
 
-        self.k_dist = self.params.ODOMETRY_WHEEL_PERIMETER / self.params.ODOMETRY_TICKS_PER_REV
-        self.k_theta = (
-            self.params.ODOMETRY_WHEEL_PERIMETER
-            / self.params.ODOMETRY_TICKS_PER_REV
-            / self.params.ODOMETRY_WHEEL_SPACING
-        )
+        self.control_loop_period = self.config.get_controlloop_period()
+
+        self.k_dist = self.config.ODOMETRY_WHEEL_PERIMETER / self.config.ODOMETRY_TICKS_PER_REV
+        self.k_theta = self.config.ODOMETRY_WHEEL_PERIMETER / self.config.ODOMETRY_TICKS_PER_REV / self.config.ODOMETRY_WHEEL_SPACING
 
         self.last_ticks_left = 0
         self.last_ticks_right = 0
@@ -43,7 +41,7 @@ class Odometry:
         self.avg_vel_dist.reset()
         self.avg_vel_theta.reset()
 
-    def set(self, x_mm: float = None, y_mm: float = None, theta_rad: float = None):
+    def set(self, x_mm: float | None = None, y_mm: float | None = None, theta_rad: float | None = None):
         with self.lock:
             if x_mm is not None:
                 self.x_mm = x_mm
@@ -63,11 +61,11 @@ class Odometry:
 
         delta_theta_ticks = delta_right_ticks - delta_left_ticks
         delta_theta_rad = delta_theta_ticks * self.k_theta
-        vel_theta_deg = math.degrees(delta_theta_rad) / self.params.CONTROLLOOP_PERIOD
+        vel_theta_deg = math.degrees(delta_theta_rad) / self.control_loop_period
 
         delta_distance_ticks = (delta_right_ticks + delta_left_ticks) / 2
         delta_distance_mm = delta_distance_ticks * self.k_dist
-        vel_dist_mm = delta_distance_mm / self.params.CONTROLLOOP_PERIOD
+        vel_dist_mm = delta_distance_mm / self.control_loop_period
 
         with self.lock:
             self.theta_ticks += delta_theta_ticks

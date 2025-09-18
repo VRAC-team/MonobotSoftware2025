@@ -1,9 +1,11 @@
 import logging
 import gc
 import os
+import ctypes
+import sys
+import time
 import colorama
 from colorama import Fore
-import time
 
 
 class ElapsedColorFormatter(logging.Formatter):
@@ -46,7 +48,7 @@ def setup_logging() -> None:
     logging.getLogger("can").setLevel(logging.CRITICAL)
 
 
-def setup_realtime() -> None:
+def setup_realtime():
     # I didn't observed any spike difference when disabling or enabling the gc (when measuring main loop time execution). But still prefer to disable it just in case :P
     gc.disable()
 
@@ -57,6 +59,15 @@ def setup_realtime() -> None:
         os.sched_setscheduler(0, os.SCHED_FIFO, os.sched_param(10))
     except PermissionError:
         print("cap_sys_nice+ep not enabled on python3 bin !")
+
+    # lock memory to RAM, prevent memory swapped out to disk
+    libc = ctypes.CDLL("libc.so.6")
+    MCL_CURRENT = 1
+    MCL_FUTURE = 2
+    res = libc.mlockall(MCL_CURRENT | MCL_FUTURE)
+    if res != 0:
+        err = ctypes.get_errno()
+        print(f"mlockall failed: {os.strerror(err)}", file=sys.stderr)
 
 
 def clamp(val, min_, max_):

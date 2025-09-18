@@ -1,11 +1,11 @@
-import can
 import logging
 import inspect
+import can
 
 logger = logging.getLogger(__name__)
 
 
-def send(bus: can.Bus, msg: can.Message) -> bool:
+def can_send(bus: can.BusABC, msg: can.Message) -> bool:
     """
     Returns:
         bool: True if the message was accepted by the socket layer for transmission.
@@ -16,21 +16,20 @@ def send(bus: can.Bus, msg: can.Message) -> bool:
         sent to the CAN interface; it does not mean that another node received or acknowledged it.
         Be warned!
     """
-    frame = inspect.currentframe().f_back
-    caller_name = frame.f_code.co_name
-    caller_instance = frame.f_locals.get("self")
-    if caller_instance:
-        caller_name = f"{caller_instance.__class__.__name__}.{caller_name}"
-
     try:
         bus.send(msg)
         return True
     except can.CanError:
+        frame = inspect.currentframe().f_back
+        caller_name = frame.f_code.co_name
+        caller_instance = frame.f_locals.get("self")
+        if caller_instance:
+            caller_name = f"{caller_instance.__class__.__name__}.{caller_name}"
         logger.error("could not sent CAN: caller:%s msg:%s", caller_name, msg)
         return False
 
 
-def get_can_interface(preferred_channel=("can0", "vcan0"), bitrate: int = 1000000) -> can.BusABC | None:
+def get_can_interface(preferred_channel=("can0", "vcan0"), bitrate: int = 1000000) -> can.BusABC:
     for chan in preferred_channel:
         try:
             bus = can.ThreadSafeBus(
@@ -43,3 +42,5 @@ def get_can_interface(preferred_channel=("can0", "vcan0"), bitrate: int = 100000
             return bus
         except Exception:
             pass
+
+    raise RuntimeError("No CAN bus found")

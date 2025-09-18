@@ -2,50 +2,51 @@ import enum
 import math
 import logging
 import time
-import threading
 import dataclasses
+from typing import Generator
 
-from robot.parameters import RobotParameters, TeamColor
-from robot.velocity_ramp import VelocityRamp
-from robot.hall_encoder import HallEncoder
-from robot.odometry import Odometry
-from robot.pid import PID_RCVA
-from robot.filters import RampFilter
-from robot.telemetry import telemetry
+from .robot_config import RobotConfig
+from .team_color import TeamColor
+from .velocity_ramp import VelocityRamp
+from .hall_encoder import HallEncoder
+from .odometry import Odometry
+from .pid import PID_RCVA
+from .filters import RampFilter
+from .telemetry import telemetry
 
 
 @dataclasses.dataclass(frozen=True)
-class Velocity:
+class VelocityParam:
     accel: float
     decel: float
     max_vel: float
 
     blocked_error: float  # [mm or deg] if error (consign-current) is greather than this, increment internal counter, else reset the counter
-    blocked_counter: int = (
-        3  # if the internal counter is greater than this, emergency brake and consider the motion as blocked
-    )
+    blocked_counter: int = 3  # if the internal counter is greater than this, emergency brake and consider the motion as blocked
 
     def __str__(self) -> str:
-        return f"Velocity(acc={self.accel:.1f} dec={self.decel:.1f} vel={self.max_vel:.1f})"
+        return f"VelocityParam(acc={self.accel:.1f} dec={self.decel:.1f} vel={self.max_vel:.1f})"
 
 
 class DistanceParams(enum.Enum):
-    VERY_SLOW = Velocity(300, 300, 150, blocked_error=200.0)
-    SLOW = Velocity(1000, 1000, 300, blocked_error=200.0)
-    NORMAL = Velocity(2500, 2900, 600, blocked_error=200.0)
-    FAST = Velocity(2600, 2900, 800, blocked_error=200.0)
-    VERY_FAST = Velocity(2600, 2900, 1200, blocked_error=200.0)
+    SLOW_HOMING = VelocityParam(400, 400, 100, blocked_error=25.0, blocked_counter=10)
+
+    VERY_SLOW = VelocityParam(300, 300, 100, blocked_error=14.0 + 5000.0)
+    SLOW = VelocityParam(1000, 1000, 300, blocked_error=26.0 + 3)
+    NORMAL = VelocityParam(2500, 2900, 600, blocked_error=60.0 + 3)
+    FAST = VelocityParam(2600, 2900, 800, blocked_error=69.0 + 5)
+    VERY_FAST = VelocityParam(2600, 2900, 1200, blocked_error=102.0 + 5)
 
     def __str__(self) -> str:
         return f"DistanceParams.{self.name}({self.value})"
 
 
 class ThetaParams(enum.Enum):
-    VERY_SLOW = Velocity(200, 200, 100, blocked_error=6 + 2)
-    SLOW = Velocity(800, 800, 200, blocked_error=12 + 2)
-    NORMAL = Velocity(1500, 1200, 300, blocked_error=18 + 3)
-    FAST = Velocity(1500, 1200, 500, blocked_error=29 + 5)
-    VERY_FAST = Velocity(1500, 1200, 600, blocked_error=35 + 5)
+    VERY_SLOW = VelocityParam(200, 200, 100, blocked_error=6 + 2)
+    SLOW = VelocityParam(800, 800, 200, blocked_error=12 + 2)
+    NORMAL = VelocityParam(1500, 1200, 300, blocked_error=18 + 3)
+    FAST = VelocityParam(1500, 1200, 500, blocked_error=29 + 5)
+    VERY_FAST = VelocityParam(1500, 1200, 600, blocked_error=35 + 5)
 
     def __str__(self) -> str:
         return f"ThetaParams.{self.name}({self.value})"
@@ -66,22 +67,21 @@ class RobotOrientation(enum.Enum):
 class MotionState(enum.Enum):
     STAY_AT_POSITION = "stay_at_position"
     LINE = "line"
+    HOME = "home"
     ROTATE = "rotate"
     LOOK_AT = "look_at"
     GOTO_XY_PHASE1_LOOK_AT = "goto_xy_phase1_look_at"
     GOTO_XY_PHASE2_LINE_TO = "goto_xy_phase2_line_to"
     WAYPOINT_XY = "waypoint_xy"
-    HOME = "home"
-
+    WAIT_NEXT_WAYPOINT_XY = "wait_next_waypoint_xy"
     DISABLED = "disabled"
 
 
-class MotionFinishedState(enum.Enum):
-    SUCCESS = "success"
+class MotionError(enum.Enum):
     BLOCKED = "blocked"
     TIMEOUT = "timeout"
-
-    TIMEOUT_NO_WAYPOINT_RECEIVED = "timeout_no_waypoint_received"
+    NO_WAYPOINT_XY_RECEIVED = "no_waypoint_xy_received"
+    HOME_MAX_DISTANCE_REACHED = "home_max_distance_reached"
 
 
 class Setpoints:
@@ -104,10 +104,6 @@ class TrajectoryHelper:
         target_front = math.degrees(math.atan2(dy, dx))
         delta_front = TrajectoryHelper.normalize_theta_deg(target_front - current_theta)
         delta_back = TrajectoryHelper.normalize_theta_deg(target_front + 180.0 - current_theta)
-        print("current_theta:", current_theta)
-        print("target_front:", target_front)
-        print("delta_front:", delta_front)
-        print("delta_back:", delta_back)
 
         if rotation_direction == RotationDirection.CLOCKWISE:
             if delta_front > 0.0:
@@ -139,34 +135,32 @@ class TrajectoryHelper:
 
 
 class TrajectoryManager:
-    def __init__(self, params: RobotParameters, odometry: Odometry):
-        self.params = params
+    def __init__(self, config: RobotConfig, odometry: Odometry):
+        self.config = config
         self.odo = odometry
         self.team = TeamColor.BLUE
 
-        self.encoder_left = HallEncoder(params)
-        self.encoder_right = HallEncoder(params)
+        self.encoder_left = HallEncoder(self.config)
+        self.encoder_right = HallEncoder(self.config)
 
         # self.pid_dist = PID(kp=650.0, ki=0, kd=40.0, frequency=params.CONTROLLOOP_FREQUENCY) # aggresif 650 40
         # self.pid_theta = PID(kp=2000.0, ki=0.0, kd=130.0, frequency=params.CONTROLLOOP_FREQUENCY) # aggresif 2000 130
+        self.pid_dist = PID_RCVA(kp=800, kd=0.25, frequency=self.config.CONTROLLOOP_FREQUENCY)  # 1000 0.28
+        self.pid_theta = PID_RCVA(kp=1800, kd=0.35, frequency=self.config.CONTROLLOOP_FREQUENCY)  # 2000 0.35
 
-        self.pid_dist = PID_RCVA(kp=800, kd=0.25, frequency=params.CONTROLLOOP_FREQUENCY)  # 1000 0.28
-        self.pid_theta = PID_RCVA(kp=1800, kd=0.35, frequency=params.CONTROLLOOP_FREQUENCY)  # 2000 0.35
-
-        self.ramp_theta = VelocityRamp(self.params.CONTROLLOOP_PERIOD, self.params.FORCEBRAKE_THETA_DECEL)
-        self.ramp_dist = VelocityRamp(self.params.CONTROLLOOP_PERIOD, self.params.FORCEBRAKE_DIST_DECEL)
+        self.ramp_theta = VelocityRamp(self.config.get_controlloop_period(), self.config.FORCEBRAKE_THETA_DECEL)
+        self.ramp_dist = VelocityRamp(self.config.get_controlloop_period(), self.config.FORCEBRAKE_DIST_DECEL)
 
         # HACK this is a hack because there is discontinuities in the velocityramp pos/vel consign between maxvel/decel
-        pwm_accel = 0.6 * 32767.0
-        self.pwmtheta_limiter = RampFilter(self.params.CONTROLLOOP_PERIOD, pwm_accel, pwm_accel)
-        self.pwmdist_limiter = RampFilter(self.params.CONTROLLOOP_PERIOD, pwm_accel, pwm_accel)
+        pwm_accel = 0.6 * 32767.0 * 200.0
+        self.pwmtheta_limiter = RampFilter(self.config.get_controlloop_period(), pwm_accel, pwm_accel)
+        self.pwmdist_limiter = RampFilter(self.config.get_controlloop_period(), pwm_accel, pwm_accel)
 
-        self.params_dist = DistanceParams.NORMAL
-        self.params_theta = ThetaParams.NORMAL
+        self.velparams_dist: VelocityParam = DistanceParams.NORMAL.value
+        self.velparams_theta: VelocityParam = ThetaParams.NORMAL.value
 
-        self.state = MotionState.STAY_AT_POSITION
-        self.setpoints = Setpoints()
-        self.trajectory_finished = threading.Event()
+        self.state: MotionState = MotionState.STAY_AT_POSITION
+        self.setpoints: Setpoints = Setpoints()
 
         self.blocked_counter_theta = 0
         self.blocked_counter_dist = 0
@@ -176,26 +170,26 @@ class TrajectoryManager:
         # used by other than STAY_AT_POSITION
         self.motion_start_time = 0.0
         self.motion_timeout_after_duration = 0.0
-        self.motion_finished_state = MotionFinishedState.SUCCESS
-
-        # gotoxy specific
-        self.gotoxy_rotation_direction = RotationDirection.AUTO
-        self.gotoxy_robot_orientation = RobotOrientation.FRONT
-
-        # waypointxy specific
-        self.waypointxy_robot_orientation = RobotOrientation.FRONT
-        self.waypointxy_max_theta_error = float("inf")
-        self.waypointxy_has_more_waypoints_to_come = False
-        self.waypointxy_atgoal = threading.Event()
-        self.waypointxy_atgoal_wait_next = threading.Event()
+        self.motion_error: MotionError | None = None
 
         # home specific
         self.home_robot_orientation = RobotOrientation.BACK
+
+        # gotoxy specific
+        self.gotoxy_rotation_direction: RotationDirection = RotationDirection.AUTO
+        self.gotoxy_robot_orientation: RobotOrientation = RobotOrientation.FRONT
+
+        # waypointxy specific
+        self.waypointxy_robot_orientation: RobotOrientation = RobotOrientation.FRONT
+        self.waypointxy_max_theta_error: float = float("inf")
+        self.waypointxy_has_more_waypoints_to_come: bool = False
 
     def on_status(self, state_error: bool, enc_left: int, enc_right: int) -> None:
         """
         This must be called by the motorboard callback (from on_message_received from the python-can Notifier thread)
         """
+        # if state_error:
+        #     self.state = MotionState.DISABLED
         self.encoder_left.update(enc_left)
         self.encoder_right.update(enc_right)
         self.odo.update(self.encoder_left.get(), -self.encoder_right.get())
@@ -213,7 +207,7 @@ class TrajectoryManager:
         self.logger.debug("force braking ! (state:%s)", self.state)
         return True
 
-    def line(self, distance_mm: float, params: DistanceParams = DistanceParams.NORMAL) -> bool:
+    def line(self, distance_mm: float, params: DistanceParams = DistanceParams.SLOW) -> bool:
         if self.state != MotionState.STAY_AT_POSITION:
             self.logger.error("asked for line but state is not STAY_AT_POSITION (state:%s)", self.state)
             return False
@@ -224,16 +218,46 @@ class TrajectoryManager:
         self.setpoints.distance_mm += distance_mm
         self.setpoints.x_mm += distance_mm * math.cos(math.radians(self.setpoints.theta_deg))
         self.setpoints.y_mm += distance_mm * math.sin(math.radians(self.setpoints.theta_deg))
-        self.params_dist = p
+        self.velparams_dist = p
         self._trajectory_start(MotionState.LINE, estimated_time)
 
-        self.logger.debug(
-            "LINE start (distance_mm:%.1f params:%s estimated_time:%.2f)", distance_mm, params.name, estimated_time
-        )
+        self.logger.debug("LINE start (distance_mm:%.1f params:%s estimated_time:%.2f)", distance_mm, params.name, estimated_time)
 
         return True
 
-    def rotate(self, theta_deg: float, params: ThetaParams = ThetaParams.NORMAL) -> bool:
+    def home(
+        self,
+        orientation: RobotOrientation = RobotOrientation.BACK,
+        max_distance_mm_abs: float = 300.0,
+        params: DistanceParams = DistanceParams.SLOW_HOMING,
+    ) -> bool:
+        if self.state != MotionState.STAY_AT_POSITION:
+            self.logger.error("asked for home but state is not STAY_AT_POSITION (state:%s)", self.state)
+            return False
+
+        if orientation == RobotOrientation.AUTO:
+            self.logger.error("RobotOrientation.AUTO not supported for home")
+            return False
+
+        max_distance_mm = abs(max_distance_mm_abs)
+        if orientation == RobotOrientation.BACK:
+            max_distance_mm = -max_distance_mm
+
+        p = params.value
+        estimated_time = self.ramp_dist.start(max_distance_mm, p.accel, p.decel, p.max_vel, self.setpoints.distance_mm)
+
+        self.setpoints.distance_mm += max_distance_mm
+        self.setpoints.x_mm += max_distance_mm * math.cos(math.radians(self.setpoints.theta_deg))
+        self.setpoints.y_mm += max_distance_mm * math.sin(math.radians(self.setpoints.theta_deg))
+        self.velparams_dist = p
+        self.home_robot_orientation = orientation
+        self._trajectory_start(MotionState.HOME, estimated_time)
+
+        self.logger.debug("HOME start (max_distance_mm:%.1f params:%s estimated_time:%.2f)", max_distance_mm, params.name, estimated_time)
+
+        return True
+
+    def rotate(self, theta_deg: float, params: ThetaParams = ThetaParams.SLOW) -> bool:
         if self.state != MotionState.STAY_AT_POSITION:
             self.logger.error("asked for rotate but state is not STAY_AT_POSITION (state:%s)", self.state)
             return False
@@ -245,12 +269,10 @@ class TrajectoryManager:
         estimated_time = self.ramp_theta.start(theta_deg, p.accel, p.decel, p.max_vel, self.setpoints.theta_deg)
 
         self.setpoints.theta_deg += theta_deg
-        self.params_theta = p
+        self.velparams_theta = p
         self._trajectory_start(MotionState.ROTATE, estimated_time)
 
-        self.logger.debug(
-            "ROTATE start (theta_deg:%.1f params:%s estimated_time:%.2f)", theta_deg, params.name, estimated_time
-        )
+        self.logger.debug("ROTATE start (theta_deg:%.1f params:%s estimated_time:%.2f)", theta_deg, params.name, estimated_time)
 
         return True
 
@@ -258,7 +280,7 @@ class TrajectoryManager:
         self,
         x: float,
         y: float,
-        params: ThetaParams = ThetaParams.NORMAL,
+        params: ThetaParams = ThetaParams.SLOW,
         robot_orientation: RobotOrientation = RobotOrientation.FRONT,
         rotation_direction: RotationDirection = RotationDirection.AUTO,
     ) -> bool:
@@ -279,7 +301,7 @@ class TrajectoryManager:
         estimated_time = self.ramp_theta.start(theta_deg, p.accel, p.decel, p.max_vel, self.setpoints.theta_deg)
 
         self.setpoints.theta_deg += theta_deg
-        self.params_theta = p
+        self.velparams_theta = p
         self._trajectory_start(MotionState.LOOK_AT, estimated_time)
 
         self.logger.debug(
@@ -299,8 +321,8 @@ class TrajectoryManager:
         self,
         x: float,
         y: float,
-        params_dist: DistanceParams = DistanceParams.NORMAL,
-        params_theta: ThetaParams = ThetaParams.NORMAL,
+        params_dist: DistanceParams = DistanceParams.SLOW,
+        params_theta: ThetaParams = ThetaParams.SLOW,
         robot_orientation: RobotOrientation = RobotOrientation.FRONT,
         rotation_direction: RotationDirection = RotationDirection.AUTO,
     ) -> bool:
@@ -322,12 +344,8 @@ class TrajectoryManager:
 
         p_dist = params_dist.value
         p_theta = params_theta.value
-        estimated_time_theta = self.ramp_theta.start(
-            theta_deg, p_theta.accel, p_theta.decel, p_theta.max_vel, self.setpoints.theta_deg
-        )
-        estimated_time_dist = self.ramp_dist.start(
-            distance, p_dist.accel, p_dist.decel, p_dist.max_vel, self.setpoints.distance_mm
-        )
+        estimated_time_theta = self.ramp_theta.start(theta_deg, p_theta.accel, p_theta.decel, p_theta.max_vel, self.setpoints.theta_deg)
+        estimated_time_dist = self.ramp_dist.start(distance, p_dist.accel, p_dist.decel, p_dist.max_vel, self.setpoints.distance_mm)
         estimated_time = estimated_time_theta + estimated_time_dist
 
         self.gotoxy_robot_orientation = orientation_computed
@@ -335,8 +353,8 @@ class TrajectoryManager:
         self.setpoints.theta_deg += theta_deg
         self.setpoints.x_mm = x
         self.setpoints.y_mm = y
-        self.params_theta = p_theta
-        self.params_dist = p_dist
+        self.velparams_theta = p_theta
+        self.velparams_dist = p_dist
         self._trajectory_start(MotionState.GOTO_XY_PHASE1_LOOK_AT, estimated_time)
 
         self.logger.debug(
@@ -354,68 +372,12 @@ class TrajectoryManager:
 
         return True
 
-    def waypoint_xy_chained(self, x: float, y: float, has_more_waypoints_to_come: bool = False) -> bool:
-        """
-        when chained with a previous waypoint, this must be called less than a CONTROLLOOP_PERIOD after wait_waypoint_at_goal else it will error
-        """
-        if self.state != MotionState.WAYPOINT_XY:
-            self.logger.error("can only by chained with a previous WAYPOINT_XY (state:%s)", self.state)
-            return False
-
-        if self.team is TeamColor.YELLOW:
-            x = 3000.0 - x
-
-        dx = x - self.odo.get_x()
-        dy = y - self.odo.get_y()
-        distance_mm = math.sqrt(dx * dx + dy * dy)
-        theta_deg = math.degrees(math.atan2(dy, dx))
-        if self.waypointxy_robot_orientation == RobotOrientation.BACK:
-            theta_deg += 180
-        theta_deg = TrajectoryHelper.normalize_theta_deg(theta_deg - self.odo.get_theta())
-
-        end_velocity = self.params_dist.max_vel if has_more_waypoints_to_come else 0.0
-        start_velocity = self.params_dist.max_vel
-        estimated_time_dist = self.ramp_dist.start(
-            distance_mm,
-            self.params_dist.accel,
-            self.params_dist.decel,
-            self.params_dist.max_vel,
-            self.setpoints.distance_mm,
-            start_velocity,
-            end_velocity,
-        )
-        estimated_time_theta = self.ramp_theta.start(
-            theta_deg,
-            self.params_theta.accel,
-            self.params_theta.decel,
-            self.params_theta.max_vel,
-            self.setpoints.theta_deg,
-            self.odo.get_theta_vel(),
-        )
-        estimated_time = estimated_time_dist + estimated_time_theta  # * 0.7
-
-        self.waypointxy_has_more_waypoints_to_come = has_more_waypoints_to_come
-        self.setpoints.x_mm = x
-        self.setpoints.y_mm = y
-        self._trajectory_start(MotionState.WAYPOINT_XY, estimated_time)
-
-        if has_more_waypoints_to_come:
-            self.waypointxy_atgoal_wait_next.set()
-
-        self.logger.debug(
-            "WAYPOINT_XY chained (x:%.1f y:%.1f has_more_waypoints_to_come:%s estimated_time:%.2f)",
-            x,
-            y,
-            has_more_waypoints_to_come,
-            estimated_time,
-        )
-
     def waypoint_xy_start(
         self,
         x: float,
         y: float,
-        params_dist: DistanceParams = DistanceParams.NORMAL,
-        params_theta: ThetaParams = ThetaParams.NORMAL,
+        params_dist: DistanceParams = DistanceParams.SLOW,
+        params_theta: ThetaParams = ThetaParams.SLOW,
         robot_orientation: RobotOrientation = RobotOrientation.FRONT,
     ) -> bool:
         """
@@ -445,21 +407,17 @@ class TrajectoryManager:
             distance_mm, p_dist.accel, p_dist.decel, p_dist.max_vel, self.setpoints.distance_mm, 0.0, p_dist.max_vel
         )
         p_theta = params_theta.value
-        estimated_time_theta = self.ramp_theta.start(
-            theta_deg, p_theta.accel, p_theta.decel, p_theta.max_vel, self.setpoints.theta_deg
-        )
+        estimated_time_theta = self.ramp_theta.start(theta_deg, p_theta.accel, p_theta.decel, p_theta.max_vel, self.setpoints.theta_deg)
         estimated_time = estimated_time_dist + estimated_time_theta  # * 0.7
 
         self.waypointxy_robot_orientation = robot_orientation
-        self.waypointxy_max_theta_error = math.degrees(p_theta.max_vel / self.params.WAYPOINT_XY_MIN_RADIUS)
+        self.waypointxy_max_theta_error = math.degrees(p_theta.max_vel / self.config.WAYPOINT_XY_MIN_RADIUS)
         self.waypointxy_has_more_waypoints_to_come = True
-        self.waypointxy_atgoal.clear()
-        self.waypointxy_atgoal_wait_next.clear()
 
         self.setpoints.x_mm = x
         self.setpoints.y_mm = y
-        self.params_theta = p_theta
-        self.params_dist = p_dist
+        self.velparams_theta = p_theta
+        self.velparams_dist = p_dist
         self._trajectory_start(MotionState.WAYPOINT_XY, estimated_time)
 
         self.logger.debug(
@@ -475,57 +433,114 @@ class TrajectoryManager:
 
         return True
 
-    def wait_waypoint_at_goal(self):
-        self.waypointxy_atgoal.wait()
-        self.waypointxy_atgoal.clear()
-        return self.motion_finished_state
+    def waypoint_xy_chained(self, x: float, y: float, has_more_waypoints_to_come: bool = False) -> bool:
+        """
+        when chained with a previous waypoint, this must be called less than a CONTROLLOOP_PERIOD after wait_waypoint_at_goal else it will error
+        """
+        if self.state != MotionState.WAIT_NEXT_WAYPOINT_XY:
+            self.logger.error("asked for waypoint_xy_chained but state is not WAIT_NEXT_WAYPOINT_XY (state:%s)", self.state)
+            return False
+
+        if self.team is TeamColor.YELLOW:
+            x = 3000.0 - x
+
+        dx = x - self.odo.get_x()
+        dy = y - self.odo.get_y()
+        distance_mm = math.sqrt(dx * dx + dy * dy)
+        theta_deg = math.degrees(math.atan2(dy, dx))
+        if self.waypointxy_robot_orientation == RobotOrientation.BACK:
+            theta_deg += 180
+        theta_deg = TrajectoryHelper.normalize_theta_deg(theta_deg - self.odo.get_theta())
+
+        end_velocity = self.velparams_dist.max_vel if has_more_waypoints_to_come else 0.0
+        start_velocity = self.velparams_dist.max_vel
+        estimated_time_dist = self.ramp_dist.start(
+            distance_mm,
+            self.velparams_dist.accel,
+            self.velparams_dist.decel,
+            self.velparams_dist.max_vel,
+            self.setpoints.distance_mm,
+            start_velocity,
+            end_velocity,
+        )
+        estimated_time_theta = self.ramp_theta.start(
+            theta_deg,
+            self.velparams_theta.accel,
+            self.velparams_theta.decel,
+            self.velparams_theta.max_vel,
+            self.setpoints.theta_deg,
+            self.odo.get_theta_vel(),
+        )
+        estimated_time = estimated_time_dist + estimated_time_theta  # * 0.7
+
+        self.waypointxy_has_more_waypoints_to_come = has_more_waypoints_to_come
+        self.setpoints.x_mm = x
+        self.setpoints.y_mm = y
+        self._trajectory_start(MotionState.WAYPOINT_XY, estimated_time)
+
+        self.logger.debug(
+            "WAYPOINT_XY chained (x:%.1f y:%.1f has_more_waypoints_to_come:%s estimated_time:%.2f)",
+            x,
+            y,
+            has_more_waypoints_to_come,
+            estimated_time,
+        )
+        return True
+
+    def wait_waypoint(self) -> Generator[None, None, MotionError | None]:
+        while self.state == MotionState.WAYPOINT_XY and not self.motion_error:
+            yield
+        return self.motion_error
 
     def _waypoint_at_goal(self):
-        self.waypointxy_atgoal.set()
         total_time = time.monotonic() - self.motion_start_time
+        if self.waypointxy_has_more_waypoints_to_come:
+            self.state = MotionState.WAIT_NEXT_WAYPOINT_XY
+        else:
+            self.state = MotionState.STAY_AT_POSITION
         self.logger.debug("_waypoint_at_goal (total_time:%.2f)", total_time)
 
-    def wait_trajectory_finished(self) -> MotionFinishedState:
-        self.trajectory_finished.wait()
-        return self.motion_finished_state
+    def wait(self) -> Generator[None, None, MotionError | None]:
+        while self.state != MotionState.STAY_AT_POSITION and not self.motion_error:
+            yield
+        return self.motion_error
 
     def _trajectory_start(self, state: MotionState, estimated_time: float):
         self.state = state
-        self.trajectory_finished.clear()
         self.blocked_counter_dist = 0
         self.blocked_counter_theta = 0
-        self.motion_timeout_after_duration = estimated_time * self.params.BLOCKED_TOTALTIME_COEF
+        self.motion_timeout_after_duration = estimated_time * self.config.BLOCKED_TOTALTIME_COEF
         self.motion_start_time = time.monotonic()
-        self.motion_finished_state = MotionFinishedState.SUCCESS
+        self.motion_error = None
 
-    def _trajectory_error(self, error_state: MotionFinishedState):
-        self.motion_finished_state = error_state
+    def _trajectory_error(self, error_state: MotionError):
+        self.motion_error = error_state
         match error_state:
-            case MotionFinishedState.TIMEOUT:
+            case MotionError.TIMEOUT:
                 self.logger.error(
                     "_trajectory_error TIMEOUT %s (timeout_after_duration:%.2f)",
                     self.state.name,
                     self.motion_timeout_after_duration,
                 )
-            case MotionFinishedState.BLOCKED:
+            case MotionError.BLOCKED:
                 self.logger.error(
                     "_trajectory_error BLOCKED %s (blocked_counter_dist:%d blocked_counter_theta:%d)",
                     self.state.name,
                     self.blocked_counter_dist,
                     self.blocked_counter_theta,
                 )
-            case MotionFinishedState.TIMEOUT_NO_WAYPOINT_RECEIVED:
-                self.logger.error("_trajectory_error TIMEOUT_NO_WAYPOINT_RECEIVED %s", self.state.name)
+            case MotionError.NO_WAYPOINT_XY_RECEIVED:
+                self.logger.error("_trajectory_error NO_WAYPOINT_XY_RECEIVED %s", self.state.name)
+            case MotionError.HOME_MAX_DISTANCE_REACHED:
+                self.logger.error("_trajectory_error HOME_MAX_DISTANCE_REACHED %s", self.state.name)
 
     def _trajectory_finished(self):
         total_time = time.monotonic() - self.motion_start_time
-        self.logger.debug(
-            "_trajectory_finished %s %s (total_time:%.2f)", self.state.name, self.motion_finished_state.name, total_time
-        )
+        error_name = "None" if self.motion_error is None else self.motion_error.value
+        self.logger.debug("_trajectory_finished %s err:%s (total_time:%.2f)", self.state.name, error_name, total_time)
         self.state = MotionState.STAY_AT_POSITION
-        self.trajectory_finished.set()
 
-    def process(self) -> tuple[float, float]:
+    def process(self, t: float) -> tuple[float, float]:
         out_dist_error_mm = 0.0
         out_theta_error_deg = 0.0
 
@@ -533,34 +548,44 @@ class TrajectoryManager:
         consign_vel_dist = 0.0
 
         trajectory_timeout = False
-        current_time = time.monotonic()
-        if current_time - self.motion_start_time > self.motion_timeout_after_duration:
+        if t - self.motion_start_time > self.motion_timeout_after_duration:
             trajectory_timeout = True
 
+        if self.state == MotionState.WAIT_NEXT_WAYPOINT_XY:
+            self.state = MotionState.DISABLED
+            self.ramp_dist.force_brake()
+            self.ramp_theta.force_brake()
+            self._trajectory_error(MotionError.NO_WAYPOINT_XY_RECEIVED)
+            self.logger.error("did not received the next waypoint in time! disabling..")
+            return (0.0, 0.0)
+
         match self.state:
+            case MotionState.DISABLED:
+                return (0.0, 0.0)
+
             case MotionState.STAY_AT_POSITION:
                 out_dist_error_mm = self.setpoints.distance_mm - self.odo.get_dist()
                 out_theta_error_deg = self.setpoints.theta_deg - self.odo.get_theta()
 
             case MotionState.LINE:
                 remaining_dist = self.setpoints.distance_mm - self.odo.get_dist()
-                consign_dist, consign_vel_dist = self.ramp_dist.process(remaining_dist, self.odo.get_dist())
+                consign_dist, consign_vel_dist = self.ramp_dist.process(remaining_dist, self.odo.get_dist(), self.odo.get_dist_vel())
 
                 out_dist_error_mm = consign_dist - self.odo.get_dist()
                 out_theta_error_deg = self.setpoints.theta_deg - self.odo.get_theta()
 
                 if not self.ramp_dist.has_force_braked():
-                    if abs(out_dist_error_mm) >= self.params_dist.blocked_error:
+                    if abs(out_dist_error_mm) >= self.velparams_dist.blocked_error:
                         self.blocked_counter_dist += 1
                     else:
                         self.blocked_counter_dist = 0
 
-                    if self.blocked_counter_dist >= self.params_dist.blocked_counter:
+                    if self.blocked_counter_dist >= self.velparams_dist.blocked_counter:
                         self.ramp_dist.force_brake()
-                        self._trajectory_error(MotionFinishedState.BLOCKED)
+                        self._trajectory_error(MotionError.BLOCKED)
                     elif trajectory_timeout:
                         self.ramp_dist.force_brake()
-                        self._trajectory_error(MotionFinishedState.TIMEOUT)
+                        self._trajectory_error(MotionError.TIMEOUT)
 
                 if self.ramp_dist.is_finished_by_force_brake() and abs(self.odo.get_dist_vel()) < 1.0:
                     self.logger.info("LINE done by force brake (remaining:%.1fmm)", remaining_dist)
@@ -572,9 +597,32 @@ class TrajectoryManager:
                 elif self.ramp_dist.is_finished() or abs(remaining_dist) < 0.4:
                     self._trajectory_finished()
 
+            case MotionState.HOME:
+                remaining_dist = self.setpoints.distance_mm - self.odo.get_dist()
+                consign_dist, consign_vel_dist = self.ramp_dist.process(remaining_dist, self.odo.get_dist(), self.odo.get_dist_vel())
+
+                out_dist_error_mm = consign_dist - self.odo.get_dist()
+                out_theta_error_deg = (self.setpoints.theta_deg - self.odo.get_theta()) / 8.0  # here we divide the theta error to ease the home
+
+                if abs(out_dist_error_mm) >= self.velparams_dist.blocked_error:
+                    self.blocked_counter_dist += 1
+                else:
+                    self.blocked_counter_dist = 0
+
+                if self.blocked_counter_dist >= self.velparams_dist.blocked_counter:
+                    self.setpoints.theta_deg = self.odo.get_theta()
+                    self.setpoints.distance_mm = self.odo.get_dist()
+                    self.setpoints.x_mm = self.odo.get_x()
+                    self.setpoints.y_mm = self.odo.get_y()
+                    self._trajectory_finished()
+                elif self.ramp_dist.is_finished():
+                    self._trajectory_error(MotionError.HOME_MAX_DISTANCE_REACHED)
+                # elif self.ramp_dist.is_finished_by_force_brake(): #TODO what do we do there ?
+                #     self._trajectory_error(MotionError.TIMEOUT)
+
             case MotionState.ROTATE | MotionState.LOOK_AT | MotionState.GOTO_XY_PHASE1_LOOK_AT:
                 remaining_theta = self.setpoints.theta_deg - self.odo.get_theta()
-                consign_theta, consign_vel_theta = self.ramp_theta.process(remaining_theta, self.odo.get_theta())
+                consign_theta, consign_vel_theta = self.ramp_theta.process(remaining_theta, self.odo.get_theta(), self.odo.get_theta_vel())
 
                 telemetry.send("consign_theta", consign_theta)
                 telemetry.send("consign_vel_theta", consign_vel_theta)
@@ -583,17 +631,17 @@ class TrajectoryManager:
                 out_theta_error_deg = consign_theta - self.odo.get_theta()
 
                 if not self.ramp_theta.has_force_braked():
-                    if abs(out_theta_error_deg) >= self.params_theta.blocked_error:
+                    if abs(out_theta_error_deg) >= self.velparams_theta.blocked_error:
                         self.blocked_counter_theta += 1
                     else:
                         self.blocked_counter_theta = 0
 
-                    if self.blocked_counter_theta >= self.params_theta.blocked_counter:
+                    if self.blocked_counter_theta >= self.velparams_theta.blocked_counter:
                         self.ramp_theta.force_brake()
-                        self._trajectory_error(MotionFinishedState.BLOCKED)
+                        self._trajectory_error(MotionError.BLOCKED)
                     elif trajectory_timeout:
                         self.ramp_theta.force_brake()
-                        self._trajectory_error(MotionFinishedState.TIMEOUT)
+                        self._trajectory_error(MotionError.TIMEOUT)
 
                 if self.ramp_theta.is_finished_by_force_brake() and abs(self.odo.get_theta_vel()) < 1.0:
                     self.logger.debug("%s done by force brake (remaining:%.1fdeg)", self.state.name, remaining_theta)
@@ -623,21 +671,21 @@ class TrajectoryManager:
 
                 out_theta_error_deg = TrajectoryHelper.normalize_theta_deg(target_theta - self.odo.get_theta())
 
-                consign_dist, consign_vel_dist = self.ramp_dist.process(remaining_dist, self.odo.get_dist())
+                consign_dist, consign_vel_dist = self.ramp_dist.process(remaining_dist, self.odo.get_dist(), self.odo.get_dist_vel())
                 out_dist_error_mm = consign_dist - self.odo.get_dist()
 
                 if not self.ramp_dist.has_force_braked():
-                    if abs(out_dist_error_mm) >= self.params_dist.blocked_error:
+                    if abs(out_dist_error_mm) >= self.velparams_dist.blocked_error:
                         self.blocked_counter_dist += 1
                     else:
                         self.blocked_counter_dist = 0
 
-                    if self.blocked_counter_dist >= self.params_dist.blocked_counter:
+                    if self.blocked_counter_dist >= self.velparams_dist.blocked_counter:
                         self.ramp_dist.force_brake()
-                        self._trajectory_error(MotionFinishedState.BLOCKED)
+                        self._trajectory_error(MotionError.BLOCKED)
                     elif trajectory_timeout:
                         self.ramp_dist.force_brake()
-                        self._trajectory_error(MotionFinishedState.TIMEOUT)
+                        self._trajectory_error(MotionError.TIMEOUT)
 
                 if self.ramp_dist.is_finished_by_force_brake() and abs(self.odo.get_dist_vel()) < 1.0:
                     self.logger.info("GOTO_XY_PHASE2_LINE_TO done by force brake (remaining:%.1fmm)", remaining_dist)
@@ -660,11 +708,8 @@ class TrajectoryManager:
                     target_theta += 180.0
                     remaining_dist *= -1.0
 
-                consign_dist, consign_vel_dist = self.ramp_dist.process(remaining_dist, self.odo.get_dist())
+                consign_dist, consign_vel_dist = self.ramp_dist.process(remaining_dist, self.odo.get_dist(), self.odo.get_dist_vel())
                 out_dist_error_mm = consign_dist - self.odo.get_dist()
-
-                telemetry.send("consign_dist", consign_dist)
-                telemetry.send("consign_vel_dist", consign_vel_dist)
 
                 out_theta_error_deg = TrajectoryHelper.normalize_theta_deg(target_theta - self.odo.get_theta())
 
@@ -676,37 +721,37 @@ class TrajectoryManager:
                     elif out_theta_error_deg < -self.waypointxy_max_theta_error:
                         out_theta_error_deg = -self.waypointxy_max_theta_error
 
-                    consign_theta, consign_vel_theta = self.ramp_theta.process(
-                        out_theta_error_deg, self.odo.get_theta()
-                    )
+                    consign_theta, consign_vel_theta = self.ramp_theta.process(out_theta_error_deg, self.odo.get_theta(), self.odo.get_theta_vel())
                     out_theta_error_deg = TrajectoryHelper.normalize_theta_deg(consign_theta - self.odo.get_theta())
 
-                print("remaining_dist", remaining_dist, "out_theta_error_deg", out_theta_error_deg)
+                telemetry.send("consign_dist", consign_dist)
+                telemetry.send("consign_vel_dist", consign_vel_dist)
+                telemetry.send("out_theta_error_deg", out_theta_error_deg)
+                telemetry.send("remaining_dist", remaining_dist)
 
-                if (
-                    not self.ramp_dist.has_force_braked()
-                ):  # no need to also check ramp_theta.has_force_braked() because both are force braked when blocked or timeout
-                    if abs(out_dist_error_mm) >= self.params_dist.blocked_error:
+                # no need to also check ramp_theta.has_force_braked() because both are force braked when blocked or timeout
+                if not self.ramp_dist.has_force_braked():
+                    if abs(out_dist_error_mm) >= self.velparams_dist.blocked_error:
                         self.blocked_counter_dist += 1
                     else:
                         self.blocked_counter_dist = 0
 
-                    if abs(out_theta_error_deg) >= self.params_theta.blocked_error:
+                    if abs(out_theta_error_deg) >= self.velparams_theta.blocked_error:
                         self.blocked_counter_theta += 1
                     else:
                         self.blocked_counter_theta = 0
 
                     if (
-                        self.blocked_counter_dist >= self.params_dist.blocked_counter
-                        or self.blocked_counter_theta >= self.params_theta.blocked_counter
+                        self.blocked_counter_dist >= self.velparams_dist.blocked_counter
+                        or self.blocked_counter_theta >= self.velparams_theta.blocked_counter
                     ):
                         self.ramp_dist.force_brake()
                         self.ramp_theta.force_brake()
-                        self._trajectory_error(MotionFinishedState.BLOCKED)
+                        self._trajectory_error(MotionError.BLOCKED)
                     elif trajectory_timeout:
                         self.ramp_dist.force_brake()
                         self.ramp_theta.force_brake()
-                        self._trajectory_error(MotionFinishedState.TIMEOUT)
+                        self._trajectory_error(MotionError.TIMEOUT)
 
                 if self.ramp_dist.is_finished_by_force_brake() and self.ramp_theta.is_finished_by_force_brake():
                     self.logger.info(
@@ -719,24 +764,11 @@ class TrajectoryManager:
                     self.setpoints.x_mm = self.odo.get_x()
                     self.setpoints.y_mm = self.odo.get_y()
                     self._waypoint_at_goal()
+                    self._trajectory_finished()
                 elif abs(remaining_dist) < 5.0 and self.waypointxy_has_more_waypoints_to_come:
                     self.setpoints.distance_mm = consign_dist
                     self.setpoints.theta_deg = self.odo.get_theta() + out_theta_error_deg
                     self._waypoint_at_goal()
-
-                    # timed_out = self.waypointxy_atgoal_wait_next.wait(self.params.CONTROLLOOP_PERIOD*5.0) # the timeout doesn't seems precise at all
-                    timeout_t1 = time.monotonic() + self.params.CONTROLLOOP_PERIOD * 2.0
-                    while not self.waypointxy_atgoal_wait_next.is_set():
-                        if time.monotonic() > timeout_t1:
-                            self.ramp_dist.force_brake()
-                            self.ramp_theta.force_brake()
-                            self.logger.error(
-                                "did not received the next waypoint within a CONTROLLOOP_PERIOD ! => force braking"
-                            )
-                            self._trajectory_error(MotionFinishedState.TIMEOUT_NO_WAYPOINT_RECEIVED)
-                            self.state = MotionState.DISABLED
-                            break
-                    self.waypointxy_atgoal_wait_next.clear()
                 elif self.ramp_dist.is_finished() and not self.waypointxy_has_more_waypoints_to_come:
                     self.setpoints.distance_mm = self.odo.get_dist() + remaining_dist
                     self.setpoints.theta_deg = self.odo.get_theta() + out_theta_error_deg
@@ -760,8 +792,10 @@ class TrajectoryManager:
         pwm_left = -pwm_dist + pwm_theta
 
         telemetry.send_str("type", self.state.name)
-        # telemetry.send("setpoints.distance_mm", self.setpoints.distance_mm)
-        # telemetry.send("setpoints.theta_deg", self.setpoints.theta_deg)
+        telemetry.send("setpoints.distance_mm", self.setpoints.distance_mm)
+        telemetry.send("setpoints.theta_deg", self.setpoints.theta_deg)
+        telemetry.send("setpoints.x_mm", self.setpoints.x_mm)
+        telemetry.send("setpoints.y_mm", self.setpoints.y_mm)
 
         telemetry.send("dist_error_mm", out_dist_error_mm)
         telemetry.send("theta_error_deg", out_theta_error_deg)

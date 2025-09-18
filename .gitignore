@@ -17,6 +17,9 @@ motorboard/.sconsign.dblite
 motorboard/project.xml.log
 motorboard/SConstruct
 
+pamiboard/.pio/
+pamiboard/.vscode/
+
 pumpboard/.vscode/
 pumpboard/artifacts/
 pumpboard/build/
@@ -24,6 +27,8 @@ pumpboard/modm/
 pumpboard/.sconsign.dblite
 pumpboard/project.xml.log
 pumpboard/SConstruct
+
+raspiboard/.venv/
 
 servoboard/.vscode/
 servoboard/artifacts/

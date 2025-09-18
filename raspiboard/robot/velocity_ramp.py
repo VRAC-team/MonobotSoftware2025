@@ -39,6 +39,8 @@ class VelocityRamp:
         self.decel_time_total = 0.0
         self.decel_time_elapsed = 0.0
 
+        self.logger = logging.getLogger(self.__class__.__name__)
+
     def force_brake(self) -> bool:
         if self.state in [
             VelocityRampState.DECEL_MAXVEL,
@@ -69,7 +71,7 @@ class VelocityRamp:
         end_velocity_abs: float = 0.0,
     ) -> float:
         if end_velocity_abs > max_velocity_abs:
-            raise Exception("end velocity greater than max velocity")
+            raise RuntimeError("end velocity greater than max velocity")
 
         self.target_position = start_position + distance
         self.acceleration_abs = acceleration_abs
@@ -77,11 +79,7 @@ class VelocityRamp:
         self.max_velocity_abs = max_velocity_abs
         self.start_velocity = start_velocity
         self.end_velocity_abs = end_velocity_abs
-        self.state = (
-            VelocityRampState.ACCEL_MAXVEL
-            if abs(start_velocity) <= max_velocity_abs
-            else VelocityRampState.DECEL_MAXVEL
-        )
+        self.state = VelocityRampState.ACCEL_MAXVEL if abs(start_velocity) <= max_velocity_abs else VelocityRampState.DECEL_MAXVEL
         self.sign = 1 if distance > 0.0 else -1
         self.must_decelerate = max_velocity_abs != end_velocity_abs
 
@@ -119,24 +117,29 @@ class VelocityRamp:
         total_time = accel_time + maxvel_time + decel_time
         return total_time
 
-    def process(self, remaining_distance: float, current_distance: float) -> tuple[float, float]:
+    def process(self, remaining_distance: float, current_distance: float, current_velocity: float) -> tuple[float, float]:
         vel = self.last_velocity
         pos = self.last_position
 
-        position_to_decel_abs = (
-            self.last_velocity * self.last_velocity - self.end_velocity_abs * self.end_velocity_abs
-        ) / (2.0 * self.deceleration_abs)
-        tracking_error = abs(self.last_position - current_distance)
-        position_to_decel_abs += tracking_error
+        # # method 1: use theorical last_velocity (pro: is precise at all speeds / cons: doesn't react when the robot is not moving, deceleration and finish WILL happen)
+        # position_to_decel_abs = (self.last_velocity * self.last_velocity - self.end_velocity_abs * self.end_velocity_abs) / (
+        #     2.0 * self.deceleration_abs
+        # )
+        # tracking_error = abs(self.last_position - current_distance)
+        # position_to_decel_abs += tracking_error
 
-        if self.must_decelerate:
-            if self.state in [VelocityRampState.ACCEL_MAXVEL, VelocityRampState.DECEL_MAXVEL]:
-                if abs(remaining_distance) <= position_to_decel_abs:
-                    self.state = VelocityRampState.DECELERATION
-                    self.decel_start_velocity = vel
-                    self.decel_start_position = pos
-                    self.decel_time_elapsed = 0
-                    self.decel_time_total = (abs(vel) - self.end_velocity_abs) / self.deceleration_abs
+        # # method 2: use real velocity (cons: velocity can be a bit noisy, not very precise)
+        position_to_decel_abs = (current_velocity * current_velocity - self.end_velocity_abs * self.end_velocity_abs) / (2.0 * self.deceleration_abs)
+        position_to_decel_abs += abs(self.last_position - current_distance)  # add tracking error
+
+        if self.must_decelerate and self.state in [VelocityRampState.ACCEL_MAXVEL, VelocityRampState.DECEL_MAXVEL]:
+            if abs(remaining_distance) <= position_to_decel_abs:  # and self.target_position <= remaining_distance
+                self.logger.debug("WHATTHEFRIKC %f %f %f %f", pos, vel, remaining_distance, position_to_decel_abs)
+                self.state = VelocityRampState.DECELERATION
+                self.decel_start_velocity = vel
+                self.decel_start_position = pos
+                self.decel_time_elapsed = 0
+                self.decel_time_total = (abs(vel) - self.end_velocity_abs) / self.deceleration_abs
 
         match self.state:
             case VelocityRampState.FINISHED | VelocityRampState.FINISHED_FORCE_BRAKE:

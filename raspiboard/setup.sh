@@ -11,5 +11,7 @@ ip -details link show can0
 # disable CPU frequency scaling
 echo performance | sudo tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor
 
-# required for realtime scheduler SCHED_FIFO
-sudo setcap cap_sys_nice+ep /usr/bin/python3.12
+# setcap python3 required for realtime scheduler sched_setscheduler and mlockall
+PYTHON_PATH=$(readlink -f $(uv python find))
+sudo setcap cap_sys_nice,cap_ipc_lock+ep "$PYTHON_PATH"
+getcap "$PYTHON_PATH"

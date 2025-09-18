@@ -1,0 +1,14 @@
+[project]
+name = "raspiboard"
+version = "0.1.0"
+description = "Strategy and motion control software of the robot running on a Raspberry Pi"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "colorama>=0.4.6",
+    "evdev>=1.9.2",
+    "gpiod>=2.3.0",
+    "numpy>=2.3.3",
+    "pyrplidar>=0.1.2",
+    "python-can>=4.6.1",
+]

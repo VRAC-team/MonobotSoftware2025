@@ -1,6 +1,7 @@
 import traceback
 import inspect
 import time
+
 import colorama
 from colorama import Fore, Style
 
@@ -8,16 +9,16 @@ colorama.init(autoreset=True)
 
 
 class SimpleTest:
-    def run(self):
-        test_methods = sorted(
-            name for name, method in inspect.getmembers(self, predicate=inspect.ismethod) if name.startswith("test_")
-        )
+    def run(self, tests_override: list[str] | None = None):
+        test_methods = sorted(name for name, method in inspect.getmembers(self, predicate=inspect.ismethod) if name.startswith("test_"))
+        if tests_override is not None:
+            test_methods = tests_override
 
         results = []
         print(f"Started testing {self.__class__.__name__} ({len(test_methods)} tests)...\n")
 
-        if hasattr(self, "setUp"):
-            self.setUp()
+        if hasattr(self, "setup"):
+            self.setup()
 
         total_start = time.perf_counter()
 
@@ -26,8 +27,8 @@ class SimpleTest:
             test_desc = f"{self.__class__.__name__}.{name}"
             print(f"{Fore.CYAN}Starting {test_desc}:{Style.RESET_ALL}")
 
-            if hasattr(self, "setUpTest"):
-                self.setUpTest()
+            if hasattr(self, "setup_test"):
+                self.setup_test()
 
             start = time.perf_counter()
 
@@ -49,15 +50,15 @@ class SimpleTest:
                 traceback.print_exc()
                 results.append(("Error", name, duration, e))
 
-            if hasattr(self, "tearDownTest"):
-                self.tearDownTest()
+            if hasattr(self, "teardown_test"):
+                self.teardown_test()
 
             print()  # newline
 
         total_duration = time.perf_counter() - total_start
 
-        if hasattr(self, "tearDown"):
-            self.tearDown()
+        if hasattr(self, "teardown"):
+            self.teardown()
 
         print("")
         print(f"Done testing {self.__class__.__name__} in {total_duration:.2f}s")
@@ -73,18 +74,30 @@ class SimpleTest:
         print("=" * 40)
         print("")
 
-    def assertTrue(self, expr, msg=None):
+    def assert_true(self, expr, msg=None):
         if not expr:
             raise AssertionError(msg or f"Expected True but got {expr!r}")
 
-    def assertFalse(self, expr, msg=None):
+    def assert_false(self, expr, msg=None):
         if expr:
             raise AssertionError(msg or f"Expected False but got {expr!r}")
 
-    def assertEqual(self, a, b, msg=None):
+    def assert_equal(self, a, b, msg=None):
         if a != b:
             raise AssertionError(msg or f"{a!r} != {b!r}")
 
-    def assertNotEqual(self, a, b, msg=None):
+    def assert_not_equal(self, a, b, msg=None):
         if a == b:
             raise AssertionError(msg or f"{a!r} == {b!r}")
+
+    def setup(self):
+        raise NotImplementedError()
+
+    def teardown(self):
+        raise NotImplementedError()
+
+    def setup_test(self):
+        raise NotImplementedError()
+
+    def teardown_test(self):
+        raise NotImplementedError()

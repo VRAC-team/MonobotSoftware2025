@@ -1,10 +1,11 @@
-import pyrplidar
 import threading
-import numpy as np
 import time
 import math
 import os
 import logging
+
+import numpy as np
+import pyrplidar
 
 # import cv2
 
@@ -95,15 +96,9 @@ class Lidar:
         in_back_area_counter = 0
 
         for x, y in zip(x_local, y_local):
-            if (
-                self.emergency_stop_near <= x <= emergency_stop_far
-                and -self.emergency_width / 2 <= y <= self.emergency_width / 2
-            ):
+            if self.emergency_stop_near <= x <= emergency_stop_far and -self.emergency_width / 2 <= y <= self.emergency_width / 2:
                 in_front_area_counter += 1
-            if (
-                -self.emergency_stop_near >= x >= -emergency_stop_far
-                and -self.emergency_width / 2 <= y <= self.emergency_width / 2
-            ):
+            if -self.emergency_stop_near >= x >= -emergency_stop_far and -self.emergency_width / 2 <= y <= self.emergency_width / 2:
                 in_back_area_counter += 1
 
         with self.lock:

@@ -1,4 +1,3 @@
-import can
 import struct
 from enum import Enum, auto
 import logging
@@ -6,6 +5,8 @@ import threading
 
 import robot.can_utils as can_utils
 from robot.can_identifiers import CANIDS
+
+import can
 
 
 class StepperState(Enum):
@@ -85,11 +86,11 @@ class Stepper:
 
 
 def default_stepper_mapping() -> dict[int, Stepper]:
-    return {4: Stepper()}
+    return {0: Stepper(), 1: Stepper(), 2: Stepper(), 3: Stepper(), 4: Stepper()}
 
 
 class IOBoard(can.Listener):
-    def __init__(self, bus: can.Bus, steppers: dict[int, Stepper] = None):
+    def __init__(self, bus: can.BusABC, steppers: dict[int, Stepper] | None = None):
         self.bus: can.BusABC = bus
         self.steppers: dict[int, Stepper] = steppers or default_stepper_mapping()
 
@@ -161,9 +162,7 @@ class IOBoard(can.Listener):
                     return
 
                 # if we receive ERROR_MOTION_IN_PROGRESS it means the state of this class is not synced anymore with ioboard
-                raise StepperDesyncError(
-                    f"Reiceived ERROR_MOTION_IN_PROGRESS (state:{self.steppers[stepper_id].get_state()})"
-                )
+                raise StepperDesyncError(f"Reiceived ERROR_MOTION_IN_PROGRESS (state:{self.steppers[stepper_id].get_state()})")
 
             case CANIDS.CANID_IO_STEPPER_ERROR_INVALID_PARAMS:
                 (stepper_id,) = struct.unpack(">B", msg.data)
@@ -196,9 +195,7 @@ class IOBoard(can.Listener):
                     StepperState.HAS_REQUESTED_HOME,
                     StepperState.IS_DOING_HOME,
                 ]:
-                    raise StepperDesyncError(
-                        f"Reiceived HOME_FAILED but state was not doing home (state:{self.steppers[stepper_id].get_state()})"
-                    )
+                    raise StepperDesyncError(f"Reiceived HOME_FAILED but state was not doing home (state:{self.steppers[stepper_id].get_state()})")
 
                 self.steppers[stepper_id].set_state(StepperState.FLAG_HOME_FAILED)
                 self.logger.debug("HOME_FAILED (stepper_id:%d)", stepper_id)
@@ -212,9 +209,7 @@ class IOBoard(can.Listener):
                     StepperState.HAS_REQUESTED_HOME,
                     StepperState.IS_DOING_HOME,
                 ]:
-                    raise StepperDesyncError(
-                        f"Reiceived HOME_SUCCEEDED but state was not doing home (state:{self.steppers[stepper_id].get_state()})"
-                    )
+                    raise StepperDesyncError(f"Reiceived HOME_SUCCEEDED but state was not doing home (state:{self.steppers[stepper_id].get_state()})")
 
                 self.steppers[stepper_id].set_state(StepperState.FLAG_HOME_SUCCEEDED)
                 self.logger.debug("HOME_SUCCEEDED (stepper_id:%d)", stepper_id)
@@ -241,9 +236,7 @@ class IOBoard(can.Listener):
                     StepperState.HAS_REQUESTED_GOTO,
                     StepperState.IS_DOING_GOTO,
                 ]:
-                    raise StepperDesyncError(
-                        f"Reiceived GOTO_FINISHED but state was not doing goto (state:{self.steppers[stepper_id].get_state()})"
-                    )
+                    raise StepperDesyncError(f"Reiceived GOTO_FINISHED but state was not doing goto (state:{self.steppers[stepper_id].get_state()})")
 
                 self.steppers[stepper_id].set_state(StepperState.FLAG_GOTO_FINISHED)
                 self.logger.debug("GOTO_FINISHED (stepper_id:%d)", stepper_id)
@@ -259,7 +252,7 @@ class IOBoard(can.Listener):
     def reboot(self) -> bool:
         self.logger.debug("reboot")
         msg = can.Message(arbitration_id=CANIDS.CANID_IO_REBOOT, is_extended_id=False)
-        return can_utils.send(self.bus, msg)
+        return can_utils.can_send(self.bus, msg)
 
     def enable(self, state: bool) -> bool:
         self.logger.debug("enable: %s", state)
@@ -268,7 +261,7 @@ class IOBoard(can.Listener):
             data=[state],
             is_extended_id=False,
         )
-        return can_utils.send(self.bus, msg)
+        return can_utils.can_send(self.bus, msg)
 
     def home(
         self,
@@ -301,7 +294,7 @@ class IOBoard(can.Listener):
             return StepperMotionResult.ERROR_INVALID_PARAM
 
         msg = can.Message(arbitration_id=CANIDS.CANID_IO_STEPPER_HOME, data=data, is_extended_id=False)
-        if not can_utils.send(self.bus, msg):
+        if not can_utils.can_send(self.bus, msg):
             return StepperMotionResult.ERROR_CAN_SEND
 
         stepper.set_state(StepperState.HAS_REQUESTED_HOME)
@@ -337,9 +330,7 @@ class IOBoard(can.Listener):
                 return StepperMotionResult.ERROR_INVALID_PARAM
 
             case _:
-                raise RuntimeError(
-                    f"bruh this should not be possible (state:{stepper.get_state()} new_state:{new_state})"
-                )
+                raise RuntimeError(f"bruh this should not be possible (state:{stepper.get_state()} new_state:{new_state})")
 
     def goto_abs(
         self,
@@ -357,24 +348,17 @@ class IOBoard(can.Listener):
         self._clear_flags(stepper_id)
 
         if stepper.get_state() is not StepperState.IDLE:
-            self.logger.error(
-                "goto_abs(): A motion is already in progress! (stepper_id:%d state:%s)", stepper_id, stepper.get_state()
-            )
+            self.logger.error("goto_abs(): A motion is already in progress! (stepper_id:%d state:%s)", stepper_id, stepper.get_state())
             return StepperMotionResult.ERROR_MOTION_IN_PROGRESS
 
         try:
-            data = bytearray(
-                stepper_id.to_bytes(1)
-                + absolute_steps.to_bytes(2, signed=True)
-                + acceleleration.to_bytes(3)
-                + max_velocity.to_bytes(2)
-            )
+            data = bytearray(stepper_id.to_bytes(1) + absolute_steps.to_bytes(2, signed=True) + acceleleration.to_bytes(3) + max_velocity.to_bytes(2))
         except OverflowError:
             self.logger.error("goto_abs(): invalid parameter causing overflow (stepper_id:%d)", stepper_id)
             return StepperMotionResult.ERROR_INVALID_PARAM
 
         msg = can.Message(arbitration_id=CANIDS.CANID_IO_STEPPER_GOTO, data=data, is_extended_id=False)
-        if not can_utils.send(self.bus, msg):
+        if not can_utils.can_send(self.bus, msg):
             return StepperMotionResult.ERROR_CAN_SEND
 
         stepper.set_state(StepperState.HAS_REQUESTED_GOTO)
@@ -407,9 +391,7 @@ class IOBoard(can.Listener):
                 return StepperMotionResult.ERROR_INVALID_PARAM
 
             case _:
-                raise RuntimeError(
-                    f"bruh this should not be possible (state:{stepper.get_state()} new_state:{new_state})"
-                )
+                raise RuntimeError(f"bruh this should not be possible (state:{stepper.get_state()} new_state:{new_state})")
 
     def wait_motion_finished(self, stepper_id: int, timeout: float = 10) -> StepperMotionResult:
         if stepper_id not in self.steppers:
@@ -425,9 +407,7 @@ class IOBoard(can.Listener):
             return StepperMotionResult.ERROR_DISABLED_DURING_MOTION
 
         if state not in [StepperState.IS_DOING_GOTO, StepperState.IS_DOING_HOME]:
-            self.logger.error(
-                "wait_motion_finished(): is not doing HOME or GOTO (stepper_id:%d, state:%s)", stepper_id, state
-            )
+            self.logger.error("wait_motion_finished(): is not doing HOME or GOTO (stepper_id:%d, state:%s)", stepper_id, state)
             return StepperMotionResult.ERROR_WAS_NOT_DOING_MOTION
 
         new_state, timed_out = stepper.wait_for_state_change(state, timeout=timeout)

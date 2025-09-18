@@ -1,4 +1,4 @@
-import collections
+from collections import deque
 
 
 class ThresholdFilter:
@@ -21,12 +21,12 @@ class MovingAverageFilter:
     def __init__(self, window_size: int = 2):
         self.window_size = window_size
 
-        self.values = collections.deque()
-        self.sum = 0
+        self.values: deque[float] = deque()
+        self.sum = 0.0
 
     def reset(self):
         self.values.clear()
-        self.sum = 0
+        self.sum = 0.0
 
     def count(self) -> int:
         return len(self.values)
@@ -34,7 +34,7 @@ class MovingAverageFilter:
     def is_full(self) -> bool:
         return len(self.values) == self.window_size
 
-    def update(self, value: int):
+    def update(self, value: float):
         self.values.append(value)
         self.sum += value
 
@@ -49,10 +49,10 @@ class MovingAverageFilter:
 
 
 class RampFilter:
-    def __init__(self, control_loop_period: float, accel_rate: float, decel_rate: float):
-        self.accel_rate = accel_rate
-        self.decel_rate = decel_rate
-        self.current_value = 0.0
+    def __init__(self, control_loop_period: float, accel_rate: float, decel_rate: float, start_position: float = 0.0):
+        self.accel_rate = accel_rate * control_loop_period
+        self.decel_rate = decel_rate * control_loop_period
+        self.current_value = start_position
 
     def reset(self):
         self.current_value = 0.0

@@ -1,5 +1,5 @@
-from robot.filters import ThresholdFilter
-from robot.parameters import RobotParameters
+from .filters import ThresholdFilter
+from .robot_config import RobotConfig
 
 
 class HallEncoder:
@@ -17,10 +17,10 @@ class HallEncoder:
         min_period = (pi * 0.052 / 4) / 1.2 = 0.034 seconds (34 ms)
     """
 
-    def __init__(self, params: RobotParameters):
-        self.params = params
-        self.ticks_first_quarter = self.params.ODOMETRY_TICKS_PER_REV / 4
-        self.ticks_last_quarter = (3 * self.params.ODOMETRY_TICKS_PER_REV) / 4
+    def __init__(self, config: RobotConfig):
+        self.config = config
+        self.ticks_first_quarter = self.config.ODOMETRY_TICKS_PER_REV / 4
+        self.ticks_last_quarter = (3 * self.config.ODOMETRY_TICKS_PER_REV) / 4
 
         self.last_reading_ticks = 0
         self.total_ticks = 0
@@ -38,9 +38,9 @@ class HallEncoder:
 
         # handle encoder rollover/rolldown
         if self.last_reading_ticks < self.ticks_first_quarter and current_reading_ticks > self.ticks_last_quarter:
-            delta -= self.params.ODOMETRY_TICKS_PER_REV
+            delta -= self.config.ODOMETRY_TICKS_PER_REV
         elif self.last_reading_ticks > self.ticks_last_quarter and current_reading_ticks < self.ticks_first_quarter:
-            delta += self.params.ODOMETRY_TICKS_PER_REV
+            delta += self.config.ODOMETRY_TICKS_PER_REV
 
         self.last_reading_ticks = current_reading_ticks
 

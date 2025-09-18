@@ -152,9 +152,7 @@ class TimeTrapezoidProfile:
             case TimeTrapezoidProfileState.DECELERATION:
                 t2 = t - (self.accel_time + self.maxvel_time)
                 velocity = self.max_velocity - self.acceleration * t2
-                position = (
-                    self.accel_dist + self.maxvel_dist + (self.max_velocity * t2 - 0.5 * self.acceleration * t2**2)
-                )
+                position = self.accel_dist + self.maxvel_dist + (self.max_velocity * t2 - 0.5 * self.acceleration * t2**2)
             case TimeTrapezoidProfileState.FINISHED:
                 velocity = 0.0
                 position = self.distance_abs
@@ -183,7 +181,4 @@ class TimeTrapezoidProfile:
         return self.state
 
     def is_finished(self) -> bool:
-        return (
-            self.state == TimeTrapezoidProfileState.FINISHED
-            or self.state == TimeTrapezoidProfileState.FINISHED_BY_FORCE_BRAKE
-        )
+        return self.state == TimeTrapezoidProfileState.FINISHED or self.state == TimeTrapezoidProfileState.FINISHED_BY_FORCE_BRAKE
