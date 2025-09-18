@@ -155,11 +155,17 @@
 // reboot the board
 
 #define CANID_PUMP_SET 0x301
-// <u8 pumps_states(bitset 0-5)>
+// (possible values: 0=disable 1=enable 2,3=do not change)
+// <u2 pump_0> <u2 valve_0>
+// <u2 pump_1> <u2 valve_1>
+// <u2 pump_2> <u2 valve_2>
+// <u2 pump_3> <u2 valve_3>
+// <u2 pump_4> <u2 valve_4>
+// <u2 pump_5> <u2 valve_5>
 
 #define CANID_PUMP_STATUS 0x3EE
 // sent periodically by vacuumpumpboard
-// <u8 pumps_states(bitset 0-5)> <u8 vacuum_states(bitset 0-5)>
+// <u8 vacuum_states(bitset 0-5)>
 
 #define CANID_PUMP_ALIVE 0x3FF
 // sent periodically by vacuumpumpboard
