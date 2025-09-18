@@ -55,6 +55,6 @@ These tools are used to debug quickly the robot actuators/sensors
 
 Read all sensors values: `python3 cli_sensors.py`
 
-Move a servo: `python3 cli_sensors.py <servo_id>`
+Move a servo: `python3 cli_servo.py <servo_id>`
 
-Move a stepper motor: `python3 cli_sensors.py <stepper_id>`
+Move a stepper motor: `python3 cli_stepper.py <stepper_id>`
