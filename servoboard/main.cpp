@@ -21,6 +21,9 @@ using power3_adc_chan = GpioA6::In11;
 
 using pca_oe = GpioInverted<GpioA1>;
 
+using servo16 = GpioB0;
+using servo17 = GpioA8;
+
 struct SystemClock {
     static constexpr uint32_t Frequency = 80_MHz;
     static constexpr uint32_t Ahb = Frequency;
@@ -77,18 +80,37 @@ public:
     void reset_all_leds() {
         set_led_pattern(0, 255);
         set_led_pattern(1, 255);
-        set_led_pattern(2, 255);
-        set_led_pattern(3, 255);
+        // set_led_pattern(2, 255);
+        // set_led_pattern(3, 255);
     }
 
     bool set_led_pattern(uint8_t id, uint8_t pattern) {
         if (id > 3) {
             return false;
         }
-        uint8_t buffer[2];
-        buffer[0] = id;
-        buffer[1] = pattern;
-        this->transaction.configureWrite(buffer, 2);
+        uint8_t buffer[3];
+        buffer[0] = 0x1; // CMD SET_LED_PATTERN
+        buffer[1] = id;
+        buffer[2] = pattern;
+        this->transaction.configureWrite(buffer, 3);
+        return this->runTransaction();
+    }
+
+    bool write_servo_us(uint8_t id, uint16_t us) {
+        if (id < 16 || id > 20) {
+            return false;
+        }
+
+        if (us < 500 || us > 2500) {
+            return false;
+        }
+
+        uint8_t buffer[4];
+        buffer[0] = 0x2; // CMD WRITE_SERVO_US
+        buffer[1] = id;
+        buffer[2] = us >> 8;
+        buffer[3] = us & 0xFF;
+        this->transaction.configureWrite(buffer, 4);
         return this->runTransaction();
     }
 };
@@ -113,6 +135,22 @@ int main()
     power1_oe::reset();
     power2_oe::reset();
     power3_oe::reset();
+
+    Timer1::connect<servo17::Ch1, servo16::Ch2n>();
+    Timer1::enable();
+    Timer1::setMode(Timer1::Mode::UpCounter);
+    Timer1::setPeriod<SystemClock>(20ms); // 50 Hz
+    Timer1::configureOutputChannel<servo17::Ch1>(Timer1::OutputCompareMode::Pwm, 0);
+    Timer1::configureOutputChannel<servo16::Ch2n>(Timer1::OutputCompareMode::Pwm2, 0, Timer1::PinState::Enable, Timer1::OutputComparePolarity::ActiveHigh, Timer1::PinState::Enable);
+    Timer1::applyAndReset();
+    Timer1::start();
+    Timer1::enableOutput();
+
+    MODM_LOG_INFO << "starting servoboard date:" << __DATE__ << " time:" __TIME__ << modm::endl;
+    MODM_LOG_INFO << "waiting for the Arduino to boot.." << modm::endl;
+    MODM_LOG_INFO.flush();
+
+    MODM_LOG_INFO << "overflow tim1:" << Timer1::getOverflow() << modm::endl << modm::flush;
 
     // let's wait for the arduino nano bootleader to wake up
     modm::delay_ms(3000);
@@ -141,15 +179,15 @@ int main()
     CanFilter::setFilter(0, CanFilter::FIFO0, CanFilter::StandardIdentifier(0x100), CanFilter::StandardFilterMask(0x700));
     Can1::setAutomaticRetransmission(true);
 
-    MODM_LOG_INFO << "starting servoboard date:" << __DATE__ << " time:" __TIME__ << modm::endl;
-    MODM_LOG_INFO.flush();
-
     modm::PeriodicTimer blinker { 50ms };
 
     bool first_alive_since_reboot = true;
     modm::PeriodicTimer timer_alive { 1s };
 
-    modm::PeriodicTimer power_current_measuer_timer { 200ms };
+    modm::PeriodicTimer adc_timer { 200ms };
+
+    MODM_LOG_INFO << "starting main loop" << modm::endl;
+    MODM_LOG_INFO.flush();
 
     while (true) {
         if (blinker.execute()) {
@@ -165,7 +203,7 @@ int main()
             first_alive_since_reboot = false;
         }
 
-        if (power_current_measuer_timer.execute()) {
+        if (adc_timer.execute()) {
             uint8_t adc_values[3];
 
             Adc1::startConversion();
@@ -182,10 +220,10 @@ int main()
 
             uint8_t powers = power1_oe::read() | power2_oe::read() << 1 | power3_oe::read() << 2;
 
-            MODM_LOG_INFO << "ADC0:" << adc_values[0] << modm::endl;
-            MODM_LOG_INFO << "ADC1:" << adc_values[1] << modm::endl;
-            MODM_LOG_INFO << "ADC2:" << adc_values[2] << modm::endl << modm::endl;
-            MODM_LOG_INFO.flush();
+            // MODM_LOG_INFO << "ADC0:" << adc_values[0] << modm::endl;
+            // MODM_LOG_INFO << "ADC1:" << adc_values[1] << modm::endl;
+            // MODM_LOG_INFO << "ADC2:" << adc_values[2] << modm::endl << modm::endl;
+            // MODM_LOG_INFO.flush();
 
             modm::can::Message msg(CANID_SERVO_STATUS, 7);
             msg.setExtended(false);
@@ -219,15 +257,15 @@ int main()
             power2_oe::set(power2);
             power3_oe::set(power3);
 
-            MODM_LOG_INFO << "ENABLE_POWER power1:" << power1 << " power2:" << power2 << " power3:" << power3 << modm::endl;
-            MODM_LOG_INFO.flush();
+            // MODM_LOG_INFO << "ENABLE_POWER power1:" << power1 << " power2:" << power2 << " power3:" << power3 << modm::endl;
+            // MODM_LOG_INFO.flush();
         }
 
         else if (message.identifier == CANID_SERVO_WRITE_US && message.length == 3) {
             uint8_t servo_id = message.data[0];
             uint16_t servo_us = (message.data[1] << 8) | message.data[2];
 
-            if (servo_id >= 16) {
+            if (servo_id >= 18) {
                 modm::can::Message err(CANID_SERVO_ERROR_INVALID_PARAMS, 0);
                 err.setExtended(false);
                 Can1::sendMessage(err);
@@ -240,8 +278,17 @@ int main()
                 Can1::sendMessage(err);
                 continue;
             }
-            
-            if ((servo_id <= 7 && !power1_oe::read()) || (servo_id > 7 && !power2_oe::read())) {
+
+            bool servo_has_power_enabled = false;
+            if (servo_id <= 7) {
+                servo_has_power_enabled = power1_oe::read();
+            } else if (servo_id <= 15) {
+                servo_has_power_enabled = power2_oe::read();
+            } else if (servo_id <= 17) {
+                servo_has_power_enabled = power3_oe::read();
+            }
+        
+            if (!servo_has_power_enabled) {
                 modm::can::Message err(CANID_SERVO_ERROR_NOT_ENABLED, 1);
                 err.setExtended(false);
                 err.data[0] = servo_id;
@@ -249,7 +296,16 @@ int main()
                 continue;
             }
 
-            pca9685.write_us(servos_mapping[servo_id], servo_us);
+            if (servo_id < 16) {
+                pca9685.write_us(servos_mapping[servo_id], servo_us);
+            } else if (servo_id == 16) {
+                const uint32_t timer_compare = (uint32_t)servo_us * Timer1::getOverflow() / 20000;
+                Timer1::setCompareValue<servo16::Ch2n>(timer_compare);
+            } else if (servo_id == 17) {
+                const uint32_t timer_compare = (uint32_t)servo_us * Timer1::getOverflow() / 20000;
+                Timer1::setCompareValue<servo17::Ch1>(timer_compare);
+            }
+
         }
 
         else if (message.identifier == CANID_SERVO_SET_LED_PATTERN && message.length == 2) {
